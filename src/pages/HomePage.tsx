@@ -34,7 +34,7 @@ export function HomePage({
 
   return (
     <main>
-      <div className="md:flex md:h-[calc(100svh-72px)] md:flex-col">
+      <div className="md:flex md:h-[calc(100svh-72px)] md:flex-col md:-translate-y-4">
         <section className="border-b border-slate-200 bg-white md:basis-[56%] lg:basis-[60%]">
           <div className="mx-auto w-[min(94vw,1500px)] px-6 pt-10 pb-12 sm:pt-12 md:flex md:h-full md:flex-col md:justify-start md:pt-4 md:pb-4 lg:justify-center lg:py-8">
             <div>
@@ -103,7 +103,7 @@ export function HomePage({
         </section>
 
         <section className="w-full border-y border-slate-200 bg-slate-100 py-8 sm:py-10 md:basis-[44%] md:py-4 lg:basis-[40%] lg:py-6">
-          <div className="mx-auto w-[min(94vw,1500px)] px-6 md:flex md:h-full md:flex-col md:justify-start md:pt-0 xl:justify-center xl:-translate-y-1">
+          <div className="mx-auto w-[min(94vw,1500px)] px-6 md:flex md:h-full md:flex-col md:justify-start md:pt-0 xl:justify-center">
             <h3 className="text-[clamp(2rem,2.8vw,2.4rem)] font-bold tracking-tight text-slate-900">
               Programs
             </h3>
@@ -179,7 +179,8 @@ export function HomePage({
                 onClick={() =>
                   setMobileMissionSlide(
                     (current) =>
-                      (current - 1 + missionImages.length) % missionImages.length,
+                      (current - 1 + missionImages.length) %
+                      missionImages.length,
                   )
                 }
                 className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm font-semibold text-slate-700"
@@ -193,7 +194,9 @@ export function HomePage({
                     type="button"
                     onClick={() => setMobileMissionSlide(index)}
                     className={`h-2.5 w-2.5 rounded-full ${
-                      mobileMissionSlide === index ? "bg-slate-900" : "bg-slate-300"
+                      mobileMissionSlide === index
+                        ? "bg-slate-900"
+                        : "bg-slate-300"
                     }`}
                     aria-label={`Go to mission slide ${index + 1}`}
                   />
