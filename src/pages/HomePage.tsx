@@ -142,9 +142,9 @@ export function HomePage({
       </div>
 
       <section className="border-b border-slate-200 bg-white py-16">
-        <div className="mx-auto grid max-w-6xl gap-10 px-6 lg:grid-cols-2">
+        <div className="mx-auto grid w-[min(94vw,1500px)] gap-10 px-6 lg:grid-cols-2">
           <div>
-            <h3 className="text-3xl font-bold tracking-tight text-slate-900 md:text-3xl">
+            <h3 className="text-[clamp(2rem,2.8vw,2.4rem)] font-bold tracking-tight text-slate-900">
               Our Mission
             </h3>
             <p className="mt-4 text-base leading-7 text-slate-700">
