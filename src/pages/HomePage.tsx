@@ -148,14 +148,19 @@ export function HomePage({
               Our Mission
             </h3>
             <p className="mt-4 text-base leading-7 text-slate-700">
-              Teach Idaho creates hands-on learning experiences where students
-              build confidence, practice leadership, and connect classroom ideas
-              to real opportunities.
+              Teach Idaho creates learning experiences where students build
+              confidence, practice leadership, and connect classroom ideas to
+              real opportunities.
             </p>
             <p className="mt-3 text-base leading-7 text-slate-700">
-              Through the International Economic Summit and Idaho High School
-              Entrepreneurs Challenge, students collaborate, pitch, and solve
-              real-world problems.
+              Through hands-on programs like the International Economic Summit
+              and Idaho High School Entrepreneurs Challenge, students
+              collaborate, pitch, and solve real-world problems.
+            </p>
+            <p className="mt-3 text-base leading-7 text-slate-700">
+              We also create a supportive community for educators throughout the
+              state, where they can share ideas, resources, and learn from each
+              other.
             </p>
             <button
               type="button"

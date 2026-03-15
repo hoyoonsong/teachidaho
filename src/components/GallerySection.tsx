@@ -8,7 +8,7 @@ type GallerySectionProps = {
 };
 
 export function GallerySection({
-  title,
+  //title,
   subtitle,
   images,
 }: GallerySectionProps) {
@@ -44,8 +44,8 @@ export function GallerySection({
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">
-              {title}
+            <h2 className="text-3xl font-bold tracking-tight text-slate-900 md:text-3xl">
+              Gallery
             </h2>
             <p className="mt-2 text-sm text-slate-600">{subtitle}</p>
           </div>
@@ -53,7 +53,7 @@ export function GallerySection({
             href="https://www.facebook.com/TeachIdaho/photos"
             target="_blank"
             rel="noreferrer"
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
           >
             More on Facebook
           </a>

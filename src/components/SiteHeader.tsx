@@ -10,9 +10,10 @@ export function SiteHeader({ currentPath, onNavigate }: SiteHeaderProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const links = [
     { href: "/", label: "Home" },
-    { href: "/gallery", label: "Gallery" },
-    { href: "/econsummit", label: "Econ Summit" },
-    { href: "/pitch-competition", label: "Pitch Competition" },
+    //{ href: "/gallery", label: "Gallery" },
+    { href: "/info/econsummit", label: "Econ Summit" },
+    { href: "/info/pitch-competition", label: "Pitch Competition" },
+    { href: "/participants", label: "Participants" },
   ];
 
   return (

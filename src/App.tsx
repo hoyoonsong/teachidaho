@@ -10,6 +10,8 @@ import {
 import { EconSummitPage } from "./pages/EconSummitPage";
 import { GalleryPage } from "./pages/GalleryPage";
 import { HomePage } from "./pages/HomePage";
+import { ParticipantsPage } from "./pages/ParticipantsPage";
+import { ParticipantsRegisterPage } from "./pages/ParticipantsRegisterPage";
 import { PitchCompetitionPage } from "./pages/PitchCompetitionPage";
 
 function App() {
@@ -32,36 +34,44 @@ function App() {
   const isKnownPath = [
     "/",
     "/gallery",
-    "/econsummit",
-    "/pitch-competition",
+    "/info/econsummit",
+    "/info/pitch-competition",
+    "/participants",
+    "/participants/register",
   ].includes(path);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800">
+    <div className="flex min-h-screen flex-col bg-slate-50 text-slate-800">
       <SiteHeader currentPath={path} onNavigate={navigate} />
-      {path === "/" && (
-        <HomePage
-          onNavigate={navigate}
-          menuImages={homeMenuImages}
-          missionImages={homeMissionImages}
-        />
-      )}
-      {path === "/gallery" && <GalleryPage mixedGallery={mixedGallery} />}
-      {path === "/econsummit" && <EconSummitPage />}
-      {path === "/pitch-competition" && <PitchCompetitionPage />}
-      {!isKnownPath && (
-        <main className="mx-auto max-w-5xl px-6 py-20">
-          <h1 className="text-4xl font-black text-slate-900">Page not found</h1>
-          <button
-            type="button"
-            onClick={() => navigate("/")}
-            className="mt-5 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white"
-          >
-            Back to Home
-          </button>
-        </main>
-      )}
-      {path === "/" && <ContactButtons />}
+      <div className="flex-1">
+        {path === "/" && (
+          <HomePage
+            onNavigate={navigate}
+            menuImages={homeMenuImages}
+            missionImages={homeMissionImages}
+          />
+        )}
+        {path === "/gallery" && <GalleryPage mixedGallery={mixedGallery} />}
+        {path === "/info/econsummit" && <EconSummitPage />}
+        {path === "/info/pitch-competition" && <PitchCompetitionPage />}
+        {path === "/participants" && <ParticipantsPage />}
+        {path === "/participants/register" && <ParticipantsRegisterPage />}
+        {!isKnownPath && (
+          <main className="mx-auto max-w-5xl px-6 py-20">
+            <h1 className="text-4xl font-black text-slate-900">
+              Page not found
+            </h1>
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              className="mt-5 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Back to Home
+            </button>
+          </main>
+        )}
+        {path === "/" && <ContactButtons />}
+      </div>
       <SiteFooter />
     </div>
   );
