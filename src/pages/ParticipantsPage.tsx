@@ -71,9 +71,6 @@ export function ParticipantsPage() {
       <section className="border-b border-slate-200 bg-slate-50 py-10">
         <div className="mx-auto w-[min(94vw,1500px)] px-6">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-[clamp(2rem,2.8vw,2.4rem)] font-bold tracking-tight text-slate-900">
-              Open for Participation
-            </h2>
             <span className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">
               Supabase-ready UI
             </span>

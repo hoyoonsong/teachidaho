@@ -36,7 +36,7 @@ export function PitchCompetitionPage() {
           </p>
           <div className="mt-2">
             <a
-              href="https://www.boisestate.edu/venturecollege/high-school-idaho-entrepreneur-challenge/"
+              href="/participants/register"
               target="_blank"
               rel="noreferrer"
               className="inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
