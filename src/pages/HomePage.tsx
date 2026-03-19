@@ -110,7 +110,7 @@ export function HomePage({
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <button
                 type="button"
-                onClick={() => onNavigate("/econsummit")}
+                onClick={() => onNavigate("/info/econsummit")}
                 className="rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-indigo-300 lg:p-[clamp(0.85rem,1.1vw,1.15rem)]"
               >
                 <p className="text-[clamp(0.95rem,1.05vw,1.1rem)] font-semibold text-slate-900">
@@ -124,7 +124,7 @@ export function HomePage({
               </button>
               <button
                 type="button"
-                onClick={() => onNavigate("/pitch-competition")}
+                onClick={() => onNavigate("/info/pitch-competition")}
                 className="rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-orange-300 lg:p-[clamp(0.85rem,1.1vw,1.15rem)]"
               >
                 <p className="text-[clamp(0.95rem,1.05vw,1.1rem)] font-semibold text-slate-900">

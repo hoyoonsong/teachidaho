@@ -1,0 +1,150 @@
+import { useMemo, useState } from "react";
+import { validateFormValues } from "../../lib/formValidation";
+import type {
+  DynamicFormDefinition,
+  FormFieldDefinition,
+  FormSubmissionPayload,
+} from "../../types/forms";
+
+type DynamicFormProps = {
+  definition: DynamicFormDefinition;
+  submitLabel?: string;
+  initialValues?: FormSubmissionPayload;
+  disabled?: boolean;
+  onSubmit: (values: FormSubmissionPayload) => Promise<void> | void;
+};
+
+function getDefaultValue(field: FormFieldDefinition) {
+  if (field.type === "checkbox") return false;
+  if (field.type === "select") return field.options[0] ?? "";
+  return "";
+}
+
+export function DynamicForm({
+  definition,
+  submitLabel = "Submit",
+  disabled = false,
+  initialValues,
+  onSubmit,
+}: DynamicFormProps) {
+  const defaultValues = useMemo<FormSubmissionPayload>(() => {
+    const seed: FormSubmissionPayload = {};
+    definition.fields.forEach((field) => {
+      seed[field.id] = initialValues?.[field.id] ?? getDefaultValue(field);
+    });
+    return seed;
+  }, [definition.fields, initialValues]);
+
+  const [values, setValues] = useState<FormSubmissionPayload>(defaultValues);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  function updateField(fieldId: string, value: string | number | boolean) {
+    setValues((current) => ({ ...current, [fieldId]: value }));
+    setErrors((current) => {
+      if (!current[fieldId]) return current;
+      const next = { ...current };
+      delete next[fieldId];
+      return next;
+    });
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (disabled) return;
+
+    const nextErrors = validateFormValues(definition, values);
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
+      return;
+    }
+
+    setIsSubmitting(true);
+    await onSubmit(values);
+    setIsSubmitting(false);
+  }
+
+  return (
+    <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+      {definition.fields.map((field) => (
+        <label
+          key={field.id}
+          className={`text-sm font-medium text-slate-700 ${
+            field.type === "textarea" ? "md:col-span-2" : ""
+          }`}
+        >
+          {field.label}
+          {field.required ? " *" : ""}
+
+          {field.type === "textarea" && (
+            <textarea
+              rows={4}
+              value={String(values[field.id] ?? "")}
+              onChange={(event) => updateField(field.id, event.target.value)}
+              disabled={disabled}
+              placeholder={field.placeholder}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          )}
+
+          {(field.type === "text" ||
+            field.type === "email" ||
+            field.type === "number" ||
+            field.type === "date") && (
+            <input
+              type={field.type}
+              value={String(values[field.id] ?? "")}
+              onChange={(event) => updateField(field.id, event.target.value)}
+              disabled={disabled}
+              placeholder={field.placeholder}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          )}
+
+          {field.type === "select" && (
+            <select
+              value={String(values[field.id] ?? "")}
+              onChange={(event) => updateField(field.id, event.target.value)}
+              disabled={disabled}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              {field.options.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {field.type === "checkbox" && (
+            <input
+              type="checkbox"
+              checked={Boolean(values[field.id])}
+              onChange={(event) => updateField(field.id, event.target.checked)}
+              disabled={disabled}
+              className="mt-2 h-4 w-4 rounded border-slate-300"
+            />
+          )}
+
+          {field.helperText && (
+            <p className="mt-1 text-xs font-normal text-slate-500">
+              {field.helperText}
+            </p>
+          )}
+          {errors[field.id] && (
+            <p className="mt-1 text-xs text-rose-600">{errors[field.id]}</p>
+          )}
+        </label>
+      ))}
+      <div className="md:col-span-2">
+        <button
+          type="submit"
+          disabled={disabled || isSubmitting}
+          className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          {isSubmitting ? "Submitting..." : submitLabel}
+        </button>
+      </div>
+    </form>
+  );
+}

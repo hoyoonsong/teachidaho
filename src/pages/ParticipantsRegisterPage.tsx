@@ -1,11 +1,59 @@
-const demoEventOptions = [
-  "International Economic Summit 2026",
-  "Idaho HS Entrepreneurs Challenge 2026",
-];
+import { useEffect, useState } from "react";
+import { DynamicForm } from "../components/forms/DynamicForm";
+import { useAuth } from "../hooks/useAuth";
+import {
+  getRegistrationFormForEvent,
+  listActiveEvents,
+  submitForm,
+  type EventRecord,
+  type FormDefinitionRecord,
+} from "../lib/appDataStore";
+import type { FormSubmissionPayload } from "../types/forms";
 
 export function ParticipantsRegisterPage() {
   const params = new URLSearchParams(window.location.search);
-  const hasTeacherAccess = params.get("preview") === "teacher";
+  const { role, email } = useAuth();
+  const hasTeacherAccess = role === "teacher" || role === "admin";
+  const [events, setEvents] = useState<EventRecord[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<string>(
+    params.get("eventId") ?? "",
+  );
+  const [formDefinition, setFormDefinition] = useState<FormDefinitionRecord | null>(
+    null,
+  );
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadEvents() {
+      const nextEvents = await listActiveEvents();
+      setEvents(nextEvents);
+      if (!selectedEventId && nextEvents.length > 0) {
+        setSelectedEventId(nextEvents[0].id);
+      }
+    }
+    loadEvents();
+  }, [selectedEventId]);
+
+  useEffect(() => {
+    async function loadForm() {
+      const nextForm = await getRegistrationFormForEvent(selectedEventId || null);
+      setFormDefinition(nextForm);
+    }
+    loadForm();
+  }, [selectedEventId]);
+
+  async function handleSubmit(values: FormSubmissionPayload) {
+    if (!formDefinition) return;
+    await submitForm({
+      formDefinitionId: formDefinition.id,
+      eventId: selectedEventId || null,
+      submittedBy: email ?? "unknown@teachidaho.local",
+      payload: values,
+    });
+    setSuccessMessage(
+      "Registration submitted. Admin can now review it in the registrations queue.",
+    );
+  }
 
   return (
     <main>
@@ -32,15 +80,14 @@ export function ParticipantsRegisterPage() {
                 Teacher access required
               </h2>
               <p className="mt-2 max-w-3xl text-sm text-amber-900/90">
-                The register page is restricted to authenticated teacher
-                accounts. Use the Participants page teacher-login preview button
-                for now until full authentication is wired.
+                The register page is restricted to authenticated teacher/admin
+                accounts.
               </p>
               <a
-                href="/participants"
+                href="/login?redirectTo=%2Fparticipants%2Fregister"
                 className="mt-4 inline-flex rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
               >
-                Back to Participants
+                Go to login
               </a>
             </div>
           )}
@@ -51,77 +98,37 @@ export function ParticipantsRegisterPage() {
                 Registration Form Preview
               </h2>
               <p className="mt-2 text-sm text-slate-600">
-                Placeholder fields only. No database writes yet.
+                This form is driven by JSON schema and stores responses as JSON
+                payloads, so form versions are reproducible across events.
               </p>
-              <form className="mt-5 grid gap-4 md:grid-cols-2">
-                <label className="text-sm font-medium text-slate-700">
-                  School Name
-                  <input
-                    type="text"
-                    placeholder="Boise High School"
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              <label className="mt-4 block text-sm font-medium text-slate-700">
+                Event
+                <select
+                  value={selectedEventId}
+                  onChange={(event) => setSelectedEventId(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  {events.map((eventItem) => (
+                    <option key={eventItem.id} value={eventItem.id}>
+                      {eventItem.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {successMessage && (
+                <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                  {successMessage}
+                </p>
+              )}
+              {formDefinition && (
+                <div className="mt-5">
+                  <DynamicForm
+                    definition={formDefinition}
+                    submitLabel="Submit registration"
+                    onSubmit={handleSubmit}
                   />
-                </label>
-                <label className="text-sm font-medium text-slate-700">
-                  Teacher Name
-                  <input
-                    type="text"
-                    placeholder="Jordan Smith"
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  />
-                </label>
-                <label className="text-sm font-medium text-slate-700">
-                  Teacher Email
-                  <input
-                    type="email"
-                    placeholder="teacher@school.org"
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  />
-                </label>
-                <label className="text-sm font-medium text-slate-700">
-                  Event
-                  <select className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                    {demoEventOptions.map((eventName) => (
-                      <option key={eventName}>{eventName}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="text-sm font-medium text-slate-700">
-                  Number of Students
-                  <input
-                    type="number"
-                    min={1}
-                    placeholder="25"
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  />
-                </label>
-                <label className="text-sm font-medium text-slate-700">
-                  Grade Level
-                  <select className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                    <option>9th</option>
-                    <option>10th</option>
-                    <option>11th</option>
-                    <option>12th</option>
-                    <option>Mixed</option>
-                  </select>
-                </label>
-                <label className="text-sm font-medium text-slate-700 md:col-span-2">
-                  Notes
-                  <textarea
-                    rows={4}
-                    placeholder="Share team goals, scheduling notes, and support needed."
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  />
-                </label>
-                <div className="md:col-span-2">
-                  <button
-                    type="button"
-                    className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
-                  >
-                    Submit Registration (UI Preview)
-                  </button>
                 </div>
-              </form>
+              )}
             </div>
           )}
         </div>

@@ -1,54 +1,34 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useAuth } from "../hooks/useAuth";
+import {
+  listActiveEvents,
+  listAnnouncementsForRole,
+  type AnnouncementRecord,
+  type EventRecord,
+} from "../lib/appDataStore";
 
-type EventItem = {
-  id: string;
-  name: string;
-  dateLabel: string;
-  location: string;
-  registrationDeadline: string;
-  summary: string;
-  status: "active" | "draft" | "closed";
+type ParticipantsPageProps = {
+  onNavigate: (to: string) => void;
 };
 
-const demoEvents: EventItem[] = [
-  {
-    id: "econ-2026",
-    name: "International Economic Summit 2026",
-    dateLabel: "May 1-2, 2026",
-    location: "Boise, Idaho",
-    registrationDeadline: "Apr 18, 2026",
-    summary:
-      "Country-team presentations, leadership sessions, and collaborative simulation rounds.",
-    status: "active",
-  },
-  {
-    id: "pitch-2026",
-    name: "Idaho HS Entrepreneurs Challenge 2026",
-    dateLabel: "Apr 24, 2026",
-    location: "Nampa, Idaho",
-    registrationDeadline: "Apr 10, 2026",
-    summary:
-      "Students build venture ideas, get feedback from mentors, and pitch to judges.",
-    status: "active",
-  },
-  {
-    id: "fall-workshop",
-    name: "Fall Startup Workshop",
-    dateLabel: "Sep 2026",
-    location: "TBD",
-    registrationDeadline: "TBD",
-    summary:
-      "Teacher-focused prep workshop for entrepreneurship classroom activities.",
-    status: "draft",
-  },
-];
+export function ParticipantsPage({ onNavigate }: ParticipantsPageProps) {
+  const { role } = useAuth();
+  const [activeEvents, setActiveEvents] = useState<EventRecord[]>([]);
+  const [announcements, setAnnouncements] = useState<AnnouncementRecord[]>([]);
 
-export function ParticipantsPage() {
-  const [isTeacherLoggedIn, setIsTeacherLoggedIn] = useState(false);
-  const activeEvents = useMemo(
-    () => demoEvents.filter((event) => event.status === "active"),
-    [],
-  );
+  useEffect(() => {
+    async function loadData() {
+      const [events, notices] = await Promise.all([
+        listActiveEvents(),
+        listAnnouncementsForRole(role),
+      ]);
+      setActiveEvents(events);
+      setAnnouncements(notices);
+    }
+    loadData();
+  }, [role]);
+
+  const canRegister = role === "teacher" || role === "admin";
 
   return (
     <main>
@@ -61,9 +41,8 @@ export function ParticipantsPage() {
             Active Events
           </h1>
           <p className="mt-4 max-w-4xl text-base leading-7 text-slate-700">
-            This page is prepared for Supabase-backed event listings. For now,
-            it uses placeholder entries to preview how active opportunities will
-            appear for students and teachers.
+            Active events are controlled by the admin workspace and shown here in
+            real time.
           </p>
         </div>
       </section>
@@ -84,11 +63,13 @@ export function ParticipantsPage() {
                 <h3 className="text-xl font-bold text-slate-900">
                   {event.name}
                 </h3>
-                <p className="mt-2 text-sm text-slate-600">{event.summary}</p>
+                {event.additionalInfo && (
+                  <p className="mt-2 text-sm text-slate-600">{event.additionalInfo}</p>
+                )}
                 <ul className="mt-4 space-y-1 text-sm text-slate-700">
                   <li>
                     <span className="font-semibold text-slate-900">Date:</span>{" "}
-                    {event.dateLabel}
+                    {event.eventDate}
                   </li>
                   <li>
                     <span className="font-semibold text-slate-900">
@@ -103,8 +84,62 @@ export function ParticipantsPage() {
                     {event.registrationDeadline}
                   </li>
                 </ul>
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      canRegister
+                        ? onNavigate(`/participants/register?eventId=${event.id}`)
+                        : onNavigate(
+                            `/login?redirectTo=${encodeURIComponent(
+                              `/participants/register?eventId=${event.id}`,
+                            )}`,
+                          )
+                    }
+                    className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                      canRegister
+                        ? "bg-slate-900 text-white hover:bg-slate-700"
+                        : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                    }`}
+                  >
+                    Register
+                  </button>
+                </div>
               </article>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white py-10">
+        <div className="mx-auto w-[min(94vw,1500px)] px-6">
+          <h2 className="text-[clamp(2rem,2.8vw,2.4rem)] font-bold tracking-tight text-slate-900">
+            Announcements
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            This feed is role-aware: public announcements are always visible, and
+            role-specific updates appear once logged in.
+          </p>
+          <div className="mt-4 space-y-3">
+            {announcements.map((notice) => (
+              <article
+                key={notice.id}
+                className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-slate-900">{notice.title}</h3>
+                  <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    {notice.audience}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-slate-700">{notice.body}</p>
+              </article>
+            ))}
+            {announcements.length === 0 && (
+              <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                No announcements yet.
+              </p>
+            )}
           </div>
         </div>
       </section>
