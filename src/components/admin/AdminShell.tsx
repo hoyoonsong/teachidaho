@@ -1,49 +1,90 @@
 import type { ReactNode } from "react";
 
+export type AdminEventSection =
+  | "overview"
+  | "registrations"
+  | "announcements"
+  | "scoreboard";
+
 type AdminShellProps = {
-  currentPath: string;
   onNavigate: (to: string) => void;
   children: ReactNode;
+  mode: "hub" | "event";
+  eventId?: string;
+  eventName?: string | null;
+  activeSection?: AdminEventSection | null;
 };
 
-const adminLinks = [
-  { href: "/admin", label: "Overview" },
-  { href: "/admin/events", label: "Events" },
-  { href: "/admin/registrations", label: "Registrations" },
-  { href: "/admin/announcements", label: "Announcements" },
-  { href: "/admin/scoreboard", label: "Scoreboard" },
+const EVENT_SECTIONS: { id: AdminEventSection; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "registrations", label: "Registrations" },
+  { id: "announcements", label: "Announcements" },
+  { id: "scoreboard", label: "Scoreboard" },
 ];
 
-export function AdminShell({ currentPath, onNavigate, children }: AdminShellProps) {
+export function AdminShell({
+  onNavigate,
+  children,
+  mode,
+  eventId,
+  eventName,
+  activeSection,
+}: AdminShellProps) {
+  if (mode === "hub") {
+    return (
+      <main className="min-h-[calc(100vh-4rem)] w-full bg-slate-50 py-6 sm:py-8">
+        <div className="w-full px-4 sm:px-6 lg:px-10">{children}</div>
+      </main>
+    );
+  }
+
   return (
-    <main className="bg-slate-50 py-8">
-      <div className="mx-auto grid w-[min(94vw,1500px)] gap-6 px-6 lg:grid-cols-[230px_1fr]">
-        <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
-            Admin Workspace
-          </p>
-          <p className="mt-1 text-sm text-slate-600">
-            Create events, review submissions, and post scoped announcements.
-          </p>
-          <nav className="mt-4 space-y-2">
-            {adminLinks.map((link) => (
-              <button
-                key={link.href}
-                type="button"
-                onClick={() => onNavigate(link.href)}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-semibold transition ${
-                  currentPath === link.href
-                    ? "bg-slate-900 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {link.label}
-              </button>
-            ))}
-          </nav>
-        </aside>
-        <section>{children}</section>
+    <main className="min-h-[calc(100vh-4rem)] w-full bg-slate-50">
+      <div className="border-b border-slate-200 bg-white shadow-sm">
+        <div className="flex w-full flex-col gap-3 px-4 py-4 sm:px-6 lg:px-10">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => onNavigate("/admin/events")}
+              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
+            >
+              ← All events
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-lg font-bold text-slate-900 sm:text-xl">
+                {eventName ?? "Loading event…"}
+              </p>
+              <p className="text-xs text-slate-500">Event workspace</p>
+            </div>
+          </div>
+          {eventId && (
+            <nav
+              className="flex flex-wrap gap-1.5 border-t border-slate-100 pt-3"
+              aria-label="Event sections"
+            >
+              {EVENT_SECTIONS.map(({ id, label }) => {
+                const href = `/admin/events/${eventId}/${id}`;
+                const active = activeSection === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => onNavigate(href)}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                      active
+                        ? "bg-slate-900 text-white shadow-sm"
+                        : "bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+        </div>
       </div>
+      <div className="w-full px-4 py-6 sm:px-6 lg:px-10">{children}</div>
     </main>
   );
 }

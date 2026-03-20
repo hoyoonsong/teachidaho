@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { AdminShell } from "./components/admin/AdminShell";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AdminShell, type AdminEventSection } from "./components/admin/AdminShell";
 import { ContactButtons } from "./components/ContactButtons";
 import { SiteFooter } from "./components/SiteFooter";
 import { SiteHeader } from "./components/SiteHeader";
@@ -16,12 +16,49 @@ import { HomePage } from "./pages/HomePage";
 import { ParticipantsPage } from "./pages/ParticipantsPage";
 import { ParticipantsRegisterPage } from "./pages/ParticipantsRegisterPage";
 import { PitchCompetitionPage } from "./pages/PitchCompetitionPage";
-import { AdminAnnouncementsPage } from "./pages/admin/AdminAnnouncementsPage";
-import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
 import { AdminEventsPage } from "./pages/admin/AdminEventsPage";
-import { AdminRegistrationsPage } from "./pages/admin/AdminRegistrationsPage";
-import { AdminScoreboardPage } from "./pages/admin/AdminScoreboardPage";
+import { AdminEventWorkspace } from "./pages/admin/AdminEventWorkspace";
+import {
+  ParticipantEventWorkspace,
+  type ParticipantEventSection,
+} from "./pages/ParticipantEventWorkspace";
 import type { UserRole } from "./types/auth";
+
+function parseEventAdminRoute(pathname: string): {
+  eventId: string;
+  section: AdminEventSection;
+} | null {
+  const match = pathname.match(
+    /^\/admin\/events\/([^/]+)\/(overview|registrations|announcements|scoreboard)$/,
+  );
+  if (!match) return null;
+  return { eventId: match[1], section: match[2] as AdminEventSection };
+}
+
+function isAdminPathKnown(pathname: string): boolean {
+  if (pathname === "/admin" || pathname === "/admin/events") return true;
+  return parseEventAdminRoute(pathname) !== null;
+}
+
+function parseParticipantEventRoute(pathname: string): {
+  eventId: string;
+  section: ParticipantEventSection;
+} | null {
+  const m = pathname.match(
+    /^\/participants\/event\/([^/]+)(?:\/(scoreboard|overview|announcements))?$/,
+  );
+  if (!m) return null;
+  const section: ParticipantEventSection =
+    m[2] === "scoreboard" ? "scoreboard" : "dashboard";
+  return { eventId: m[1], section };
+}
+
+/** Old global admin URLs → normalized to event hub. */
+const LEGACY_ADMIN_PATHS: readonly string[] = [
+  "/admin/registrations",
+  "/admin/announcements",
+  "/admin/scoreboard",
+];
 
 function App() {
   const [location, setLocation] = useState({
@@ -41,7 +78,7 @@ function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  const navigate = (to: string) => {
+  const navigate = useCallback((to: string) => {
     const target = new URL(to, window.location.origin);
     const next = `${target.pathname}${target.search}`;
     const current = `${location.pathname}${location.search}`;
@@ -49,7 +86,7 @@ function App() {
     window.history.pushState({}, "", next);
     setLocation({ pathname: target.pathname, search: target.search });
     window.scrollTo({ top: 0, behavior: "smooth" });
-  };
+  }, [location.pathname, location.search]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -63,20 +100,20 @@ function App() {
   const needsAuthGate =
     path === "/login" || path === "/participants/register" || isAdminPath;
 
-  const isKnownPath = [
-    "/",
-    "/login",
-    "/gallery",
-    "/info/econsummit",
-    "/info/pitch-competition",
-    "/participants",
-    "/participants/register",
-    "/admin",
-    "/admin/events",
-    "/admin/registrations",
-    "/admin/announcements",
-    "/admin/scoreboard",
-  ].includes(path);
+  const participantEventRoute = parseParticipantEventRoute(path);
+
+  const isKnownPath =
+    [
+      "/",
+      "/login",
+      "/gallery",
+      "/info/econsummit",
+      "/info/pitch-competition",
+      "/participants",
+      "/participants/register",
+    ].includes(path) ||
+    isAdminPathKnown(path) ||
+    participantEventRoute !== null;
 
   function accessDeniedView(allowedRoles: UserRole[]) {
     if (isAuthenticated && role === null) {
@@ -130,15 +167,21 @@ function App() {
       return accessDeniedView(["admin"]);
     }
 
-    let pageNode = <AdminDashboardPage />;
-    if (path === "/admin/events") pageNode = <AdminEventsPage />;
-    if (path === "/admin/registrations") pageNode = <AdminRegistrationsPage />;
-    if (path === "/admin/announcements") pageNode = <AdminAnnouncementsPage />;
-    if (path === "/admin/scoreboard") pageNode = <AdminScoreboardPage />;
+    const eventRoute = parseEventAdminRoute(path);
+    if (eventRoute) {
+      return (
+        <AdminEventWorkspace
+          key={eventRoute.eventId}
+          eventId={eventRoute.eventId}
+          section={eventRoute.section}
+          onNavigate={navigate}
+        />
+      );
+    }
 
     return (
-      <AdminShell currentPath={path} onNavigate={navigate}>
-        {pageNode}
+      <AdminShell mode="hub" onNavigate={navigate}>
+        <AdminEventsPage onNavigate={navigate} />
       </AdminShell>
     );
   }
@@ -148,6 +191,12 @@ function App() {
       void refreshRole();
     }
   }, [isAuthenticated, refreshRole, role]);
+
+  useEffect(() => {
+    if (!isAdminPath) return;
+    if (!LEGACY_ADMIN_PATHS.includes(path)) return;
+    queueMicrotask(() => navigate("/admin/events"));
+  }, [isAdminPath, path, navigate]);
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-50 text-slate-800">
@@ -170,7 +219,7 @@ function App() {
         {!isLoading && isAdminPath && renderAdminPage()}
         {!isLoading && path === "/participants/register" && (
           role === "teacher" || role === "admin" ? (
-            <ParticipantsRegisterPage />
+            <ParticipantsRegisterPage onNavigate={navigate} />
           ) : (
             accessDeniedView(["teacher", "admin"])
           )
@@ -185,6 +234,14 @@ function App() {
         {path === "/gallery" && <GalleryPage mixedGallery={mixedGallery} />}
         {path === "/info/econsummit" && <EconSummitPage />}
         {path === "/info/pitch-competition" && <PitchCompetitionPage />}
+        {!isLoading && participantEventRoute && (
+          <ParticipantEventWorkspace
+            key={participantEventRoute.eventId}
+            eventId={participantEventRoute.eventId}
+            section={participantEventRoute.section}
+            onNavigate={navigate}
+          />
+        )}
         {path === "/participants" && <ParticipantsPage onNavigate={navigate} />}
         {!isKnownPath && (
           <main className="mx-auto max-w-5xl px-6 py-20">

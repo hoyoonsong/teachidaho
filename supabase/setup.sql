@@ -519,6 +519,28 @@ for delete using (
 );
 
 -- ---------------------------------------------------------
+-- PUBLIC READ HELPERS (participant scoreboard — team + school only, no PII)
+-- ---------------------------------------------------------
+create or replace function public.list_teams_for_public_event(p_event_id uuid)
+returns table (team_id uuid, team_name text, school_name text)
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select t.id, t.team_name, r.school_name
+  from public.teams t
+  inner join public.registrations r on r.id = t.registration_id
+  inner join public.events e on e.id = r.event_id
+  where r.event_id = p_event_id
+    and e.is_public = true
+    and e.status in ('published', 'active', 'closed');
+$$;
+
+revoke all on function public.list_teams_for_public_event(uuid) from public;
+grant execute on function public.list_teams_for_public_event(uuid) to anon, authenticated;
+
+-- ---------------------------------------------------------
 -- SEED DATA
 -- ---------------------------------------------------------
 insert into public.events (

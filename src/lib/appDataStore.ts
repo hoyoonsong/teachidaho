@@ -10,6 +10,13 @@ export type AnnouncementAudience =
   | "admins";
 export type SubmissionStatus = "pending" | "accepted" | "rejected";
 
+/** Dynamic score columns + per-team cell values (stored on events.custom_settings.scoreboard). */
+export type ScoreboardColumn = { id: string; label: string };
+export type ScoreboardGridState = {
+  columns: ScoreboardColumn[];
+  cells: Record<string, Record<string, string>>;
+};
+
 export type EventRecord = {
   id: string;
   name: string;
@@ -18,6 +25,16 @@ export type EventRecord = {
   location: string;
   registrationDeadline: string;
   status: EventStatus;
+  scoreboard?: ScoreboardGridState;
+};
+
+/** One team row for an event (flattened from registrations → teams). */
+export type EventTeamRow = {
+  id: string;
+  teamName: string;
+  registrationId: string;
+  schoolName: string;
+  teacherEmail: string;
 };
 
 export type AnnouncementRecord = {
@@ -44,6 +61,13 @@ export type FormSubmissionRecord = {
   createdAt: string;
 };
 
+/** Registration row with admin-editable fields (event-scoped lists). */
+export type RegistrationDetailRecord = FormSubmissionRecord & {
+  schoolName: string;
+  className: string | null;
+  teacherNotes: string | null;
+};
+
 export type EventMembershipRecord = {
   id: string;
   eventId: string;
@@ -61,6 +85,11 @@ export type ScoreRecord = {
   createdAt: string;
 };
 
+type EventCustomSettings = {
+  dateLabel?: string;
+  scoreboard?: ScoreboardGridState;
+};
+
 type EventRow = {
   id: string;
   name: string;
@@ -70,7 +99,7 @@ type EventRow = {
   end_date: string | null;
   registration_deadline: string | null;
   status: EventStatus;
-  custom_settings: { dateLabel?: string } | null;
+  custom_settings: EventCustomSettings | null;
 };
 
 type AnnouncementRow = {
@@ -134,7 +163,38 @@ function formatDateOnly(value: string | null) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function parseScoreboardFromSettings(
+  settings: EventCustomSettings | null | undefined,
+): ScoreboardGridState | undefined {
+  const raw = settings?.scoreboard;
+  if (!raw || typeof raw !== "object") return undefined;
+  const columnsRaw = (raw as { columns?: unknown }).columns;
+  const cellsRaw = (raw as { cells?: unknown }).cells;
+  if (!Array.isArray(columnsRaw)) return undefined;
+  const columns: ScoreboardColumn[] = columnsRaw.filter(
+    (c): c is ScoreboardColumn =>
+      Boolean(c) &&
+      typeof c === "object" &&
+      typeof (c as ScoreboardColumn).id === "string" &&
+      typeof (c as ScoreboardColumn).label === "string",
+  );
+  const cells: Record<string, Record<string, string>> = {};
+  if (cellsRaw && typeof cellsRaw === "object" && !Array.isArray(cellsRaw)) {
+    for (const [teamId, row] of Object.entries(cellsRaw)) {
+      if (row && typeof row === "object" && !Array.isArray(row)) {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(row)) {
+          out[k] = v === undefined || v === null ? "" : String(v);
+        }
+        cells[teamId] = out;
+      }
+    }
+  }
+  return { columns, cells };
+}
+
 function toEventRecord(row: EventRow): EventRecord {
+  const scoreboard = parseScoreboardFromSettings(row.custom_settings);
   return {
     id: row.id,
     name: row.name,
@@ -144,6 +204,7 @@ function toEventRecord(row: EventRow): EventRecord {
     location: row.location ?? "TBD",
     registrationDeadline: formatDateOnly(row.registration_deadline),
     status: row.status,
+    ...(scoreboard ? { scoreboard } : {}),
   };
 }
 
@@ -282,7 +343,237 @@ export async function updateEventStatus(eventId: string, status: EventStatus) {
   }, async () => undefined);
 }
 
-export async function listAnnouncementsForRole(role: UserRole | null) {
+export type EventDetailsPatch = {
+  name?: string;
+  additionalInfo?: string;
+  location?: string;
+  eventDate?: string;
+  registrationDeadline?: string;
+  status?: EventStatus;
+};
+
+export async function updateEventDetails(eventId: string, patch: EventDetailsPatch) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const updates: Record<string, unknown> = {};
+    if (patch.name !== undefined) {
+      updates.name = patch.name;
+      updates.slug = makeSlug(patch.name);
+    }
+    if (patch.additionalInfo !== undefined) {
+      updates.summary = patch.additionalInfo.trim();
+    }
+    if (patch.location !== undefined) {
+      updates.location = patch.location;
+    }
+    if (patch.eventDate !== undefined) {
+      updates.start_date = patch.eventDate;
+      updates.end_date = patch.eventDate;
+    }
+    if (patch.registrationDeadline !== undefined) {
+      updates.registration_deadline = `${patch.registrationDeadline}T23:59:00Z`;
+    }
+    if (patch.status !== undefined) {
+      updates.status = patch.status;
+    }
+    if (Object.keys(updates).length === 0) return;
+    const { data, error } = await supabase
+      .from("events")
+      .update(updates)
+      .eq("id", eventId)
+      .select(
+        "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
+      )
+      .single<EventRow>();
+    if (error) throw error;
+    return toEventRecord(data);
+  }, async () => null);
+}
+
+export async function getEventById(eventId: string): Promise<EventRecord | null> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data, error } = await supabase
+      .from("events")
+      .select(
+        "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
+      )
+      .eq("id", eventId)
+      .maybeSingle<EventRow>();
+    if (error) throw error;
+    if (!data) return null;
+    return toEventRecord(data);
+  }, async () => null);
+}
+
+/** Single event when shown on the public Participants hub (same rules as listActiveEvents). */
+export async function getParticipantVisibleEvent(
+  eventId: string,
+): Promise<EventRecord | null> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data, error } = await supabase
+      .from("events")
+      .select(
+        "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
+      )
+      .eq("id", eventId)
+      .eq("is_public", true)
+      .in("status", ["published", "active", "closed"])
+      .maybeSingle<EventRow>();
+    if (error) throw error;
+    if (!data) return null;
+    return toEventRecord(data);
+  }, async () => null);
+}
+
+export async function saveEventScoreboard(eventId: string, grid: ScoreboardGridState) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data: row, error: readError } = await supabase
+      .from("events")
+      .select("custom_settings")
+      .eq("id", eventId)
+      .single<{ custom_settings: EventCustomSettings | null }>();
+    if (readError) throw readError;
+    const prev = row?.custom_settings ?? {};
+    const nextSettings: EventCustomSettings = {
+      ...prev,
+      scoreboard: grid,
+    };
+    const { error } = await supabase
+      .from("events")
+      .update({ custom_settings: nextSettings })
+      .eq("id", eventId);
+    if (error) throw error;
+  }, async () => undefined);
+}
+
+export async function listRegistrationsForEvent(
+  eventId: string,
+): Promise<RegistrationDetailRecord[]> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data, error } = await supabase
+      .from("registrations")
+      .select(
+        "id,event_id,teacher_id,status,school_name,class_name,teacher_notes,custom_fields,submitted_at,created_at,profiles(email)",
+      )
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: false })
+      .returns<RegistrationRow[]>();
+    if (error) throw error;
+
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      formDefinitionId: "teacher-registration",
+      eventId: row.event_id,
+      submittedBy: row.profiles?.email ?? row.teacher_id,
+      payload: row.custom_fields,
+      status: toSubmissionStatus(row.status),
+      createdAt: row.created_at,
+      schoolName: row.school_name,
+      className: row.class_name,
+      teacherNotes: row.teacher_notes,
+    }));
+  }, async () => []);
+}
+
+export async function listAnnouncementsForEvent(eventId: string) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data, error } = await supabase
+      .from("announcements")
+      .select("id,title,body,audience,event_id,created_at")
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: false })
+      .returns<AnnouncementRow[]>();
+    if (error) throw error;
+    return (data ?? []).map(toAnnouncementRecord);
+  }, async () => []);
+}
+
+export async function listTeamsForEvent(eventId: string): Promise<EventTeamRow[]> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    type RegRow = {
+      id: string;
+      school_name: string;
+      profiles: { email: string } | null;
+      teams: { id: string; team_name: string }[] | null;
+    };
+    const { data, error } = await supabase
+      .from("registrations")
+      .select("id, school_name, profiles(email), teams(id, team_name)")
+      .eq("event_id", eventId)
+      .returns<RegRow[]>();
+    if (error) throw error;
+    const rows: EventTeamRow[] = [];
+    for (const reg of data ?? []) {
+      const teams = reg.teams ?? [];
+      for (const t of teams) {
+        rows.push({
+          id: t.id,
+          teamName: t.team_name,
+          registrationId: reg.id,
+          schoolName: reg.school_name,
+          teacherEmail: reg.profiles?.email ?? "",
+        });
+      }
+    }
+    return rows;
+  }, async () => []);
+}
+
+/** Team + school for public participant scoreboard (RPC; no teacher PII). */
+export type PublicScoreboardTeamRow = {
+  id: string;
+  teamName: string;
+  schoolName: string;
+};
+
+export async function listPublicTeamsForEvent(
+  eventId: string,
+): Promise<PublicScoreboardTeamRow[]> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data, error } = await supabase.rpc("list_teams_for_public_event", {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    type RpcRow = { team_id: string; team_name: string; school_name: string };
+    const rows = (data ?? []) as RpcRow[];
+    return rows.map((row) => ({
+      id: row.team_id,
+      teamName: row.team_name,
+      schoolName: row.school_name,
+    }));
+  }, async () => []);
+}
+
+export async function updateRegistrationFields(
+  registrationId: string,
+  patch: {
+    school_name?: string;
+    class_name?: string | null;
+    teacher_notes?: string | null;
+  },
+) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { error } = await supabase
+      .from("registrations")
+      .update(patch)
+      .eq("id", registrationId);
+    if (error) throw error;
+  }, async () => undefined);
+}
+
+/** Filter announcements the current role is allowed to see (same rules as the global feed). */
+export function filterAnnouncementsByRole(
+  announcements: AnnouncementRecord[],
+  role: UserRole | null,
+): AnnouncementRecord[] {
   const allowed = new Set<AnnouncementAudience>(["public"]);
   if (role === "admin") {
     allowed.add("admins");
@@ -291,7 +582,10 @@ export async function listAnnouncementsForRole(role: UserRole | null) {
   }
   if (role === "teacher") allowed.add("teachers");
   if (role === "volunteer") allowed.add("volunteers");
+  return announcements.filter((a) => allowed.has(a.audience));
+}
 
+export async function listAnnouncementsForRole(role: UserRole | null) {
   return withSupabase(async () => {
     if (!supabase) throw new Error("No supabase");
     const { data, error } = await supabase
@@ -300,9 +594,7 @@ export async function listAnnouncementsForRole(role: UserRole | null) {
       .order("created_at", { ascending: false })
       .returns<AnnouncementRow[]>();
     if (error) throw error;
-    return (data ?? [])
-      .map(toAnnouncementRecord)
-      .filter((announcement) => allowed.has(announcement.audience));
+    return filterAnnouncementsByRole((data ?? []).map(toAnnouncementRecord), role);
   }, async () => []);
 }
 

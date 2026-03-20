@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { DynamicForm } from "../components/forms/DynamicForm";
 import { useAuth } from "../hooks/useAuth";
+
+type ParticipantsRegisterPageProps = {
+  onNavigate?: (to: string) => void;
+};
 import {
   getRegistrationFormForEvent,
   listActiveEvents,
@@ -10,7 +14,9 @@ import {
 } from "../lib/appDataStore";
 import type { FormSubmissionPayload } from "../types/forms";
 
-export function ParticipantsRegisterPage() {
+export function ParticipantsRegisterPage({
+  onNavigate,
+}: ParticipantsRegisterPageProps = {}) {
   const params = new URLSearchParams(window.location.search);
   const { role, email } = useAuth();
   const hasTeacherAccess = role === "teacher" || role === "admin";
@@ -18,9 +24,8 @@ export function ParticipantsRegisterPage() {
   const [selectedEventId, setSelectedEventId] = useState<string>(
     params.get("eventId") ?? "",
   );
-  const [formDefinition, setFormDefinition] = useState<FormDefinitionRecord | null>(
-    null,
-  );
+  const [formDefinition, setFormDefinition] =
+    useState<FormDefinitionRecord | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,7 +41,9 @@ export function ParticipantsRegisterPage() {
 
   useEffect(() => {
     async function loadForm() {
-      const nextForm = await getRegistrationFormForEvent(selectedEventId || null);
+      const nextForm = await getRegistrationFormForEvent(
+        selectedEventId || null,
+      );
       setFormDefinition(nextForm);
     }
     loadForm();
@@ -66,8 +73,25 @@ export function ParticipantsRegisterPage() {
             Registration
           </h1>
           <p className="mt-4 max-w-4xl text-base leading-7 text-slate-700">
-            This page is a UI scaffold for teacher-only registration. We will
-            connect login validation and Supabase submission logic next.
+            Choose an event below and submit the registration form. Browse event details and
+            announcements from the{" "}
+            {onNavigate ? (
+              <button
+                type="button"
+                onClick={() => onNavigate("/participants")}
+                className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-600"
+              >
+                Participants
+              </button>
+            ) : (
+              <a
+                href="/participants"
+                className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-600"
+              >
+                Participants
+              </a>
+            )}{" "}
+            hub.
           </p>
         </div>
       </section>
