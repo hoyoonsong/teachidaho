@@ -1,11 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DynamicForm } from "../components/forms/DynamicForm";
+import { RegistrationTeamsEditor } from "../components/registration/RegistrationTeamsEditor";
 import { useAuth } from "../hooks/useAuth";
-
-type ParticipantsRegisterPageProps = {
-  onNavigate?: (to: string) => void;
-};
 import {
+  ensureTeacherRegistrationDraft,
   getRegistrationFormForEvent,
   listActiveEvents,
   submitForm,
@@ -14,11 +12,15 @@ import {
 } from "../lib/appDataStore";
 import type { FormSubmissionPayload } from "../types/forms";
 
+type ParticipantsRegisterPageProps = {
+  onNavigate?: (to: string) => void;
+};
+
 export function ParticipantsRegisterPage({
   onNavigate,
 }: ParticipantsRegisterPageProps = {}) {
   const params = new URLSearchParams(window.location.search);
-  const { role, email } = useAuth();
+  const { role, email, displayName } = useAuth();
   const hasTeacherAccess = role === "teacher" || role === "admin";
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string>(
@@ -27,6 +29,16 @@ export function ParticipantsRegisterPage({
   const [formDefinition, setFormDefinition] =
     useState<FormDefinitionRecord | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [registrationId, setRegistrationId] = useState<string | null>(null);
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
+
+  const teacherPrefillIfEmpty = useMemo(
+    () => ({
+      teacherEmail: email?.trim() || undefined,
+      teacherName: displayName?.trim() || undefined,
+    }),
+    [email, displayName],
+  );
 
   useEffect(() => {
     async function loadEvents() {
@@ -49,6 +61,26 @@ export function ParticipantsRegisterPage({
     loadForm();
   }, [selectedEventId]);
 
+  useEffect(() => {
+    if (!hasTeacherAccess || !selectedEventId) {
+      setRegistrationId(null);
+      setRegistrationError(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setRegistrationError(null);
+      const id = await ensureTeacherRegistrationDraft(selectedEventId);
+      if (!cancelled) {
+        if (id) setRegistrationId(id);
+        else setRegistrationError("Could not start a registration draft. Check your connection.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasTeacherAccess, selectedEventId]);
+
   async function handleSubmit(values: FormSubmissionPayload) {
     if (!formDefinition) return;
     await submitForm({
@@ -58,44 +90,16 @@ export function ParticipantsRegisterPage({
       payload: values,
     });
     setSuccessMessage(
-      "Registration submitted. Admin can now review it in the registrations queue.",
+      "Registration submitted. Admin can now review it in the registrations queue. You can still add or edit teams below.",
     );
+    if (selectedEventId) {
+      const id = await ensureTeacherRegistrationDraft(selectedEventId);
+      if (id) setRegistrationId(id);
+    }
   }
 
   return (
     <main>
-      <section className="border-b border-slate-200 bg-white">
-        <div className="mx-auto w-[min(94vw,1500px)] px-6 py-10">
-          <p className="text-sm font-semibold uppercase tracking-widest text-emerald-700">
-            Participants
-          </p>
-          <h1 className="mt-2 text-4xl font-black tracking-tight text-slate-900 md:text-5xl">
-            Registration
-          </h1>
-          <p className="mt-4 max-w-4xl text-base leading-7 text-slate-700">
-            Choose an event below and submit the registration form. Browse event details and
-            announcements from the{" "}
-            {onNavigate ? (
-              <button
-                type="button"
-                onClick={() => onNavigate("/participants")}
-                className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-600"
-              >
-                Participants
-              </button>
-            ) : (
-              <a
-                href="/participants"
-                className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-600"
-              >
-                Participants
-              </a>
-            )}{" "}
-            hub.
-          </p>
-        </div>
-      </section>
-
       <section className="bg-slate-50 py-10">
         <div className="mx-auto w-[min(94vw,1500px)] px-6">
           {!hasTeacherAccess && (
@@ -118,18 +122,41 @@ export function ParticipantsRegisterPage({
 
           {hasTeacherAccess && (
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-[clamp(2rem,2.8vw,2.4rem)] font-bold tracking-tight text-slate-900">
-                Registration Form Preview
-              </h2>
-              <p className="mt-2 text-sm text-slate-600">
-                This form is driven by JSON schema and stores responses as JSON
-                payloads, so form versions are reproducible across events.
+              <p className="text-sm font-semibold uppercase tracking-widest text-emerald-700">
+                Participants
+              </p>
+              <h1 className="mt-2 text-[clamp(2rem,2.8vw,2.4rem)] font-black tracking-tight text-slate-900">
+                Registration
+              </h1>
+              <p className="mt-3 max-w-4xl text-sm leading-relaxed text-slate-600">
+                Choose an event, add your teams, then submit the form below. Your school details and
+                consent are saved with the form. Browse event details and announcements from the{" "}
+                {onNavigate ? (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate("/participants")}
+                    className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-600"
+                  >
+                    Participants hub
+                  </button>
+                ) : (
+                  <a
+                    href="/participants"
+                    className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-600"
+                  >
+                    Participants hub
+                  </a>
+                )}
+                .
               </p>
               <label className="mt-4 block text-sm font-medium text-slate-700">
                 Event
                 <select
                   value={selectedEventId}
-                  onChange={(event) => setSelectedEventId(event.target.value)}
+                  onChange={(event) => {
+                    setSelectedEventId(event.target.value);
+                    setSuccessMessage(null);
+                  }}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 >
                   {events.map((eventItem) => (
@@ -139,15 +166,33 @@ export function ParticipantsRegisterPage({
                   ))}
                 </select>
               </label>
+
+              {registrationError && (
+                <p className="mt-3 text-sm text-amber-800">{registrationError}</p>
+              )}
+
+              <div className="mt-6">
+                <RegistrationTeamsEditor
+                  registrationId={registrationId}
+                  title="Your teams"
+                />
+              </div>
+
               {successMessage && (
                 <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
                   {successMessage}
                 </p>
               )}
               {formDefinition && (
-                <div className="mt-5">
+                <div className="mt-6 border-t border-slate-100 pt-6">
+                  <h2 className="text-lg font-bold text-slate-900">School &amp; teacher details</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Notes and consent follow your contact information.
+                  </p>
                   <DynamicForm
+                    key={`${formDefinition.id}-${selectedEventId}`}
                     definition={formDefinition}
+                    prefillIfEmpty={teacherPrefillIfEmpty}
                     submitLabel="Submit registration"
                     onSubmit={handleSubmit}
                   />

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { AdminModal } from "../../components/admin/AdminModal";
+import { PencilIconButton } from "../../components/ui/PencilIconButton";
 import {
   getEventById,
   updateEventDetails,
@@ -28,6 +30,15 @@ function formatDisplayDate(value: string) {
   return value;
 }
 
+type ModalKey =
+  | null
+  | "name"
+  | "eventDate"
+  | "location"
+  | "registrationDeadline"
+  | "status"
+  | "notes";
+
 type AdminEventOverviewPageProps = {
   eventId: string;
   onSaved: () => void;
@@ -39,13 +50,14 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [modal, setModal] = useState<ModalKey>(null);
 
-  const [name, setName] = useState("");
-  const [eventDate, setEventDate] = useState("");
-  const [location, setLocation] = useState("");
-  const [registrationDeadline, setRegistrationDeadline] = useState("");
-  const [additionalInfo, setAdditionalInfo] = useState("");
-  const [status, setStatus] = useState<EventStatus>("draft");
+  const [draftName, setDraftName] = useState("");
+  const [draftEventDate, setDraftEventDate] = useState("");
+  const [draftLocation, setDraftLocation] = useState("");
+  const [draftRegistrationDeadline, setDraftRegistrationDeadline] = useState("");
+  const [draftStatus, setDraftStatus] = useState<EventStatus>("draft");
+  const [draftNotes, setDraftNotes] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,15 +65,15 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
     const row = await getEventById(eventId);
     setEvent(row);
     if (row) {
-      setName(row.name);
-      setEventDate(row.eventDate.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? row.eventDate);
-      setLocation(row.location === "TBD" ? "" : row.location);
-      setRegistrationDeadline(
+      setDraftName(row.name);
+      setDraftEventDate(row.eventDate.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? row.eventDate);
+      setDraftLocation(row.location === "TBD" ? "" : row.location);
+      setDraftRegistrationDeadline(
         row.registrationDeadline.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ??
           row.registrationDeadline,
       );
-      setAdditionalInfo(row.additionalInfo ?? "");
-      setStatus(row.status);
+      setDraftNotes(row.additionalInfo ?? "");
+      setDraftStatus(row.status);
     }
     setLoading(false);
   }, [eventId]);
@@ -70,24 +82,33 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
     void load();
   }, [load]);
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  function openModal(key: Exclude<ModalKey, null>) {
+    if (!event) return;
+    setDraftName(event.name);
+    setDraftEventDate(event.eventDate.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? event.eventDate);
+    setDraftLocation(event.location === "TBD" ? "" : event.location);
+    setDraftRegistrationDeadline(
+      event.registrationDeadline.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ??
+        event.registrationDeadline,
+    );
+    setDraftNotes(event.additionalInfo ?? "");
+    setDraftStatus(event.status);
+    setMessage(null);
+    setError(null);
+    setModal(key);
+  }
+
+  async function saveAndClose(patch: Parameters<typeof updateEventDetails>[1]) {
     setSaving(true);
     setMessage(null);
     setError(null);
     try {
-      const updated = await updateEventDetails(eventId, {
-        name: name.trim(),
-        additionalInfo: additionalInfo.trim(),
-        location: location.trim() || "TBD",
-        eventDate,
-        registrationDeadline,
-        status,
-      });
+      const updated = await updateEventDetails(eventId, patch);
       if (updated) {
         setEvent(updated);
         setMessage("Saved.");
         onSaved();
+        setModal(null);
       } else {
         setError("Could not save (offline or unavailable).");
       }
@@ -97,6 +118,36 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleNameSubmit(e: FormEvent) {
+    e.preventDefault();
+    void saveAndClose({ name: draftName.trim() });
+  }
+
+  function handleEventDateSubmit(e: FormEvent) {
+    e.preventDefault();
+    void saveAndClose({ eventDate: draftEventDate });
+  }
+
+  function handleLocationSubmit(e: FormEvent) {
+    e.preventDefault();
+    void saveAndClose({ location: draftLocation.trim() || "TBD" });
+  }
+
+  function handleDeadlineSubmit(e: FormEvent) {
+    e.preventDefault();
+    void saveAndClose({ registrationDeadline: draftRegistrationDeadline });
+  }
+
+  function handleStatusSubmit(e: FormEvent) {
+    e.preventDefault();
+    void saveAndClose({ status: draftStatus });
+  }
+
+  function handleNotesSubmit(e: FormEvent) {
+    e.preventDefault();
+    void saveAndClose({ additionalInfo: draftNotes.trim() });
   }
 
   if (loading) {
@@ -115,81 +166,177 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
     );
   }
 
+  function modalFooter(formId: string) {
+    return (
+      <div className="flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setModal(null)}
+          disabled={saving}
+          className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          form={formId}
+          disabled={saving}
+          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-black tracking-tight text-slate-900">Overview</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Bird&apos;s-eye view of this event. Edit details below — changes apply everywhere
-          this event appears.
+    <div className="space-y-5">
+      {message && (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+          {message}
         </p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Event date
-          </p>
-          <p className="mt-1 text-sm font-semibold text-slate-900">
-            {formatDisplayDate(event.eventDate)}
-          </p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Location
-          </p>
-          <p className="mt-1 text-sm font-semibold text-slate-900">{event.location}</p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Registration deadline
-          </p>
-          <p className="mt-1 text-sm font-semibold text-slate-900">
-            {formatDisplayDate(event.registrationDeadline)}
-          </p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Status
-          </p>
-          <p className="mt-1 text-sm font-semibold capitalize text-slate-900">
-            {event.status}
-          </p>
-        </div>
-      </div>
-
-      {event.additionalInfo ? (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5 shadow-sm">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Additional info
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-slate-700">{event.additionalInfo}</p>
-        </div>
-      ) : null}
+      )}
+      {error && !modal && (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">
+          {error}
+        </p>
+      )}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-900">Edit event</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Update name, schedule, location, registration deadline, visibility status, and notes.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+              Overview
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
+              Key details for this event. Use the pencil button on each card to change one field at
+              a time — updates apply everywhere this event appears.
+            </p>
+          </div>
+        </div>
 
-        {message && (
-          <p className="mt-3 text-sm font-medium text-emerald-700">{message}</p>
-        )}
-        {error && <p className="mt-3 text-sm font-medium text-rose-700">{error}</p>}
+        <div className="relative mt-6 rounded-2xl border border-slate-200 bg-slate-50/50 p-5 pr-24">
+          <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
+            <PencilIconButton
+              onClick={() => openModal("name")}
+              label="Edit event name"
+            />
+          </div>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            Event name
+          </p>
+          <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
+            {event.name}
+          </h2>
+        </div>
 
-        <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
-          <label className="block md:col-span-2">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="relative rounded-2xl border border-slate-200 bg-white p-5 pt-12 shadow-sm">
+            <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
+              <PencilIconButton
+                onClick={() => openModal("eventDate")}
+                label="Edit event date"
+              />
+            </div>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Event date
+            </p>
+            <p className="mt-2 text-base font-bold text-slate-900">
+              {formatDisplayDate(event.eventDate)}
+            </p>
+          </div>
+          <div className="relative rounded-2xl border border-slate-200 bg-white p-5 pt-12 shadow-sm">
+            <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
+              <PencilIconButton
+                onClick={() => openModal("location")}
+                label="Edit location"
+              />
+            </div>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Location
+            </p>
+            <p className="mt-2 text-base font-bold text-slate-900">{event.location}</p>
+          </div>
+          <div className="relative rounded-2xl border border-slate-200 bg-white p-5 pt-12 shadow-sm">
+            <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
+              <PencilIconButton
+                onClick={() => openModal("registrationDeadline")}
+                label="Edit registration deadline"
+              />
+            </div>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Registration deadline
+            </p>
+            <p className="mt-2 text-base font-bold text-slate-900">
+              {formatDisplayDate(event.registrationDeadline)}
+            </p>
+          </div>
+          <div className="relative rounded-2xl border border-slate-200 bg-white p-5 pt-12 shadow-sm">
+            <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
+              <PencilIconButton
+                onClick={() => openModal("status")}
+                label="Edit status"
+              />
+            </div>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Status
+            </p>
+            <p className="mt-2 text-base font-bold capitalize text-slate-900">{event.status}</p>
+          </div>
+        </div>
+
+        <div className="relative mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-5 pr-24 shadow-sm">
+          <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
+            <PencilIconButton
+              onClick={() => openModal("notes")}
+              label="Edit additional info for participants"
+            />
+          </div>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            Additional info for participants
+          </p>
+          {event.additionalInfo?.trim() ? (
+            <p className="mt-2 text-sm leading-relaxed text-slate-700">{event.additionalInfo}</p>
+          ) : (
+            <p className="mt-2 text-sm italic text-slate-500">
+              No extra notes yet — visible on the Participants hub when added.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <AdminModal
+        open={modal === "name"}
+        title="Edit event name"
+        description="Shown in admin lists, participant pages, and links."
+        onClose={() => setModal(null)}
+        footer={modalFooter("overview-form-name")}
+      >
+        <form id="overview-form-name" className="space-y-4" onSubmit={handleNameSubmit}>
+          <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Event name *
             </span>
             <input
               required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
+          {error && modal === "name" && (
+            <p className="text-sm font-medium text-rose-700">{error}</p>
+          )}
+        </form>
+      </AdminModal>
+
+      <AdminModal
+        open={modal === "eventDate"}
+        title="Edit event date"
+        onClose={() => setModal(null)}
+        footer={modalFooter("overview-form-date")}
+      >
+        <form id="overview-form-date" className="space-y-4" onSubmit={handleEventDateSubmit}>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Event date *
@@ -197,11 +344,49 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
             <input
               required
               type="date"
-              value={eventDate}
-              onChange={(e) => setEventDate(e.target.value)}
+              value={draftEventDate}
+              onChange={(e) => setDraftEventDate(e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
+          {error && modal === "eventDate" && (
+            <p className="text-sm font-medium text-rose-700">{error}</p>
+          )}
+        </form>
+      </AdminModal>
+
+      <AdminModal
+        open={modal === "location"}
+        title="Edit location"
+        onClose={() => setModal(null)}
+        footer={modalFooter("overview-form-loc")}
+      >
+        <form id="overview-form-loc" className="space-y-4" onSubmit={handleLocationSubmit}>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Location *
+            </span>
+            <input
+              required
+              value={draftLocation}
+              onChange={(e) => setDraftLocation(e.target.value)}
+              placeholder="City, venue, or address"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </label>
+          {error && modal === "location" && (
+            <p className="text-sm font-medium text-rose-700">{error}</p>
+          )}
+        </form>
+      </AdminModal>
+
+      <AdminModal
+        open={modal === "registrationDeadline"}
+        title="Edit registration deadline"
+        onClose={() => setModal(null)}
+        footer={modalFooter("overview-form-deadline")}
+      >
+        <form id="overview-form-deadline" className="space-y-4" onSubmit={handleDeadlineSubmit}>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Registration deadline *
@@ -210,33 +395,35 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
               required
               type="date"
               value={
-                registrationDeadline.match(/^\d{4}-\d{2}-\d{2}/)
-                  ? registrationDeadline.slice(0, 10)
-                  : registrationDeadline
+                draftRegistrationDeadline.match(/^\d{4}-\d{2}-\d{2}/)
+                  ? draftRegistrationDeadline.slice(0, 10)
+                  : draftRegistrationDeadline
               }
-              onChange={(e) => setRegistrationDeadline(e.target.value)}
+              onChange={(e) => setDraftRegistrationDeadline(e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
-          <label className="block md:col-span-2">
-            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Location *
-            </span>
-            <input
-              required
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="City, venue, or address"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="block md:col-span-2">
+          {error && modal === "registrationDeadline" && (
+            <p className="text-sm font-medium text-rose-700">{error}</p>
+          )}
+        </form>
+      </AdminModal>
+
+      <AdminModal
+        open={modal === "status"}
+        title="Edit status"
+        description="Controls visibility and lifecycle for this event."
+        onClose={() => setModal(null)}
+        footer={modalFooter("overview-form-status")}
+      >
+        <form id="overview-form-status" className="space-y-4" onSubmit={handleStatusSubmit}>
+          <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Status
             </span>
             <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as EventStatus)}
+              value={draftStatus}
+              onChange={(e) => setDraftStatus(e.target.value as EventStatus)}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             >
               {EVENT_STATUSES.map((s) => (
@@ -246,29 +433,37 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
               ))}
             </select>
           </label>
-          <label className="block md:col-span-2">
+          {error && modal === "status" && (
+            <p className="text-sm font-medium text-rose-700">{error}</p>
+          )}
+        </form>
+      </AdminModal>
+
+      <AdminModal
+        open={modal === "notes"}
+        title="Edit additional info"
+        description="Optional text shown to teachers on the Participants event pages."
+        onClose={() => setModal(null)}
+        footer={modalFooter("overview-form-notes")}
+      >
+        <form id="overview-form-notes" className="space-y-4" onSubmit={handleNotesSubmit}>
+          <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Additional info (optional)
+              Additional info
             </span>
             <textarea
-              rows={4}
-              value={additionalInfo}
-              onChange={(e) => setAdditionalInfo(e.target.value)}
-              placeholder="Shown to teachers on the Participants page when present."
+              rows={5}
+              value={draftNotes}
+              onChange={(e) => setDraftNotes(e.target.value)}
+              placeholder="Parking, dress code, materials, etc."
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
-          <div className="md:col-span-2">
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-            >
-              {saving ? "Saving…" : "Save changes"}
-            </button>
-          </div>
+          {error && modal === "notes" && (
+            <p className="text-sm font-medium text-rose-700">{error}</p>
+          )}
         </form>
-      </div>
+      </AdminModal>
     </div>
   );
 }

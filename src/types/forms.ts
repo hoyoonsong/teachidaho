@@ -14,6 +14,10 @@ type FormFieldBase<TType extends FormFieldType = FormFieldType> = {
   required?: boolean;
   placeholder?: string;
   helperText?: string;
+  /** When set, enables a 3-column md grid; span per field (3 = full row). */
+  layout?: {
+    mdColSpan?: 1 | 2 | 3;
+  };
 };
 
 type SelectField = FormFieldBase<"select"> & {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { validateFormValues } from "../../lib/formValidation";
 import type {
   DynamicFormDefinition,
@@ -10,6 +10,11 @@ type DynamicFormProps = {
   definition: DynamicFormDefinition;
   submitLabel?: string;
   initialValues?: FormSubmissionPayload;
+  /**
+   * When auth (or similar) loads after mount, merge these into the form only for fields that are
+   * still empty — avoids wiping fields the user already filled.
+   */
+  prefillIfEmpty?: Record<string, string | undefined>;
   disabled?: boolean;
   onSubmit: (values: FormSubmissionPayload) => Promise<void> | void;
 };
@@ -25,6 +30,7 @@ export function DynamicForm({
   submitLabel = "Submit",
   disabled = false,
   initialValues,
+  prefillIfEmpty,
   onSubmit,
 }: DynamicFormProps) {
   const defaultValues = useMemo<FormSubmissionPayload>(() => {
@@ -39,6 +45,26 @@ export function DynamicForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (!prefillIfEmpty) return;
+    setValues((prev) => {
+      let next = prev;
+      let changed = false;
+      for (const [key, v] of Object.entries(prefillIfEmpty)) {
+        if (typeof v !== "string" || v.trim() === "") continue;
+        const cur = prev[key];
+        if (cur === "" || cur === undefined || cur === null) {
+          if (!changed) {
+            next = { ...prev };
+            changed = true;
+          }
+          next[key] = v;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [prefillIfEmpty]);
+
   function updateField(fieldId: string, value: string | number | boolean) {
     setValues((current) => ({ ...current, [fieldId]: value }));
     setErrors((current) => {
@@ -47,6 +73,26 @@ export function DynamicForm({
       delete next[fieldId];
       return next;
     });
+  }
+
+  const useThreeColumnLayout = definition.fields.some(
+    (field) => field.layout?.mdColSpan != null,
+  );
+  const gridClass = useThreeColumnLayout
+    ? "grid gap-4 sm:grid-cols-3"
+    : "grid gap-4 md:grid-cols-2";
+  const submitColClass = useThreeColumnLayout ? "sm:col-span-3" : "md:col-span-2";
+
+  function fieldColClass(field: FormFieldDefinition) {
+    if (!useThreeColumnLayout) {
+      return field.type === "textarea" ? "md:col-span-2" : "";
+    }
+    const span =
+      field.layout?.mdColSpan ??
+      (field.type === "textarea" || field.type === "checkbox" ? 3 : 1);
+    if (span === 2) return "sm:col-span-2";
+    if (span === 3) return "sm:col-span-3";
+    return "sm:col-span-1";
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -65,13 +111,11 @@ export function DynamicForm({
   }
 
   return (
-    <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+    <form className={gridClass} onSubmit={handleSubmit}>
       {definition.fields.map((field) => (
         <label
           key={field.id}
-          className={`text-sm font-medium text-slate-700 ${
-            field.type === "textarea" ? "md:col-span-2" : ""
-          }`}
+          className={`text-sm font-medium text-slate-700 ${fieldColClass(field)}`}
         >
           {field.label}
           {field.required ? " *" : ""}
@@ -136,7 +180,7 @@ export function DynamicForm({
           )}
         </label>
       ))}
-      <div className="md:col-span-2">
+      <div className={submitColClass}>
         <button
           type="submit"
           disabled={disabled || isSubmitting}

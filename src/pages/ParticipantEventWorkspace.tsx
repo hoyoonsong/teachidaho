@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
+import RichTextDisplay from "../components/richText/RichTextDisplay";
 import {
   filterAnnouncementsByRole,
   getParticipantVisibleEvent,
@@ -64,7 +65,9 @@ export function ParticipantEventWorkspace({
     let cancelled = false;
     void (async () => {
       const rows = await listAnnouncementsForEvent(eventId);
-      const visible = filterAnnouncementsByRole(rows, role);
+      const visible = filterAnnouncementsByRole(rows, role).filter(
+        (a) => !a.deletedAt,
+      );
       if (!cancelled) setAnnouncements(visible);
     })();
     return () => {
@@ -73,6 +76,13 @@ export function ParticipantEventWorkspace({
   }, [eventId, role]);
 
   const basePath = `/participants/event/${eventId}`;
+
+  const sectionLabel = section === "dashboard" ? "Dashboard" : "Scoreboard";
+
+  const pageTitle = useMemo(() => {
+    if (!event) return "";
+    return `${event.name} — ${sectionLabel}`;
+  }, [event, sectionLabel]);
 
   if (loading) {
     return (
@@ -96,9 +106,9 @@ export function ParticipantEventWorkspace({
             <button
               type="button"
               onClick={() => onNavigate("/participants")}
-              className="mt-4 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+              className="mt-4 text-sm font-semibold text-rose-900 underline decoration-rose-300 underline-offset-2 transition hover:decoration-rose-600"
             >
-              ← All events
+              ← Back to all events
             </button>
           </div>
         </div>
@@ -108,25 +118,28 @@ export function ParticipantEventWorkspace({
 
   return (
     <main className="min-h-[calc(100vh-4rem)] w-full bg-slate-50">
-      <div className="border-b border-slate-200 bg-white shadow-sm">
-        <div className="flex w-full flex-col gap-3 px-4 py-4 sm:px-6 lg:px-10">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => onNavigate("/participants")}
-              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
+      <div className="border-b border-slate-200 bg-white">
+        <div className="relative mx-auto w-full max-w-3xl px-4 pb-6 pt-5 sm:px-6 lg:max-w-4xl lg:px-10">
+          <button
+            type="button"
+            onClick={() => onNavigate("/participants")}
+            className="group absolute left-4 top-5 z-10 inline-flex items-center gap-1 text-sm font-medium text-slate-500 transition hover:text-slate-900 sm:left-6 lg:left-10"
+          >
+            <span
+              className="inline-block translate-y-px text-slate-400 transition group-hover:-translate-x-0.5 group-hover:text-slate-700"
+              aria-hidden
             >
-              ← All events
-            </button>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-lg font-bold text-slate-900 sm:text-xl">
-                {event.name}
-              </p>
-              <p className="text-xs text-slate-500">Event workspace</p>
-            </div>
-          </div>
+              ←
+            </span>
+            All events
+          </button>
+
+          <h1 className="mx-auto max-w-2xl px-14 pt-8 text-center text-balance text-2xl font-black tracking-tight text-slate-900 sm:px-4 sm:pt-6 sm:text-3xl">
+            {pageTitle}
+          </h1>
+
           <nav
-            className="flex flex-wrap gap-1.5 border-t border-slate-100 pt-3"
+            className="mx-auto mt-8 flex max-w-[min(100%,26rem)] flex-col gap-2.5 sm:flex-row sm:justify-center sm:gap-3"
             aria-label="Event sections"
           >
             {TABS.map(({ id, label, suffix }) => {
@@ -137,10 +150,10 @@ export function ParticipantEventWorkspace({
                   key={id}
                   type="button"
                   onClick={() => onNavigate(href)}
-                  className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                  className={`rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm transition sm:min-w-[160px] sm:flex-1 sm:py-3 sm:text-base ${
                     active
-                      ? "bg-slate-900 text-white shadow-sm"
-                      : "bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                      ? "bg-slate-900 text-white ring-2 ring-slate-900 ring-offset-2"
+                      : "border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
                   }`}
                 >
                   {label}
@@ -151,23 +164,19 @@ export function ParticipantEventWorkspace({
         </div>
       </div>
 
-      <div className="w-full px-4 py-6 sm:px-6 lg:px-10">
+      <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 lg:max-w-4xl lg:px-10">
         {section === "dashboard" && (
           <div className="space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h1 className="text-2xl font-black tracking-tight text-slate-900">
-                Dashboard
-              </h1>
-              <p className="mt-1 text-sm text-slate-600">
-                Key details for this event. Registration stays on the Register
-                page.
+              <p className="text-sm font-medium text-slate-500">
+                Event details
               </p>
-              <dl className="mt-6 flex flex-wrap gap-x-10 gap-y-4 border-t border-slate-100 pt-6">
+              <dl className="mt-4 flex flex-wrap gap-x-12 gap-y-4">
                 <div>
                   <dt className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    Event date
+                    Date
                   </dt>
-                  <dd className="mt-1 text-base font-semibold text-slate-900">
+                  <dd className="mt-1 text-lg font-semibold text-slate-900">
                     {formatLongDate(event.eventDate)}
                   </dd>
                 </div>
@@ -175,16 +184,34 @@ export function ParticipantEventWorkspace({
                   <dt className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                     Location
                   </dt>
-                  <dd className="mt-1 text-base font-semibold text-slate-900">
+                  <dd className="mt-1 text-lg font-semibold text-slate-900">
                     {event.location}
                   </dd>
                 </div>
               </dl>
+              <p className="mt-6 border-t border-slate-100 pt-6 text-sm text-slate-600">
+                <span className="font-medium text-slate-800">Registration</span> happens on the
+                Register page —{" "}
+                <button
+                  type="button"
+                  onClick={() =>
+                    canRegister
+                      ? onNavigate(registerTarget)
+                      : onNavigate(
+                          `/login?redirectTo=${encodeURIComponent(registerTarget)}`,
+                        )
+                  }
+                  className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-600"
+                >
+                  {canRegister ? "open the form" : "sign in to register"}
+                </button>
+                .
+              </p>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <h2 className="text-xl font-bold tracking-tight text-slate-900">
-                Announcements
+                Your announcements
               </h2>
               <p className="mt-1 text-sm text-slate-600">
                 Updates for this event. Some posts may require a signed-in
@@ -204,9 +231,9 @@ export function ParticipantEventWorkspace({
                         {notice.audience}
                       </span>
                     </div>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                      {notice.body}
-                    </p>
+                    <div className="mt-2">
+                      <RichTextDisplay content={notice.body} />
+                    </div>
                   </article>
                 ))}
                 {announcements.length === 0 && (

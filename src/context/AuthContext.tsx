@@ -15,6 +15,8 @@ type AuthContextValue = {
   isAuthenticated: boolean;
   role: UserRole | null;
   email: string | null;
+  /** Best-effort display name from profile or auth metadata (user may edit on forms). */
+  displayName: string | null;
   hasSupabaseCredentials: boolean;
   refreshRole: () => Promise<void>;
   signInWithPassword: (email: string, password: string) => Promise<string | null>;
@@ -29,6 +31,7 @@ type AuthContextValue = {
 
 type ProfileRow = {
   role: UserRole;
+  full_name: string | null;
 };
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -53,13 +56,15 @@ function clearCachedRole(userId: string) {
   window.localStorage.removeItem(roleCacheKey(userId));
 }
 
-async function fetchRole(userId: string): Promise<UserRole | null> {
-  if (!supabase) return null;
+async function fetchProfileBasics(
+  userId: string,
+): Promise<{ role: UserRole | null; fullName: string | null }> {
+  if (!supabase) return { role: null, fullName: null };
 
   try {
     const query = supabase
       .from("profiles")
-      .select("role")
+      .select("role, full_name")
       .eq("id", userId)
       .single<ProfileRow>();
 
@@ -68,26 +73,41 @@ async function fetchRole(userId: string): Promise<UserRole | null> {
     });
 
     const result = await Promise.race([query, timeout]);
-    if (!result) return null;
+    if (!result) return { role: null, fullName: null };
 
-    if (!result.error && result.data?.role) {
-      return result.data.role;
+    if (!result.error && result.data) {
+      const fn = result.data.full_name?.trim() || null;
+      return {
+        role: result.data.role ?? null,
+        fullName: fn,
+      };
     }
   } catch {
-    return null;
+    return { role: null, fullName: null };
   }
 
-  return null;
+  return { role: null, fullName: null };
+}
+
+function displayNameFromSession(session: Session | null): string | null {
+  const meta = session?.user.user_metadata as Record<string, unknown> | undefined;
+  const fromFull =
+    typeof meta?.full_name === "string" ? meta.full_name.trim() : "";
+  const fromName = typeof meta?.name === "string" ? meta.name.trim() : "";
+  const s = fromFull || fromName;
+  return s || null;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<UserRole | null>(null);
+  const [profileFullName, setProfileFullName] = useState<string | null>(null);
 
   const resolveRoleFromSession = useCallback(async (nextSession: Session | null) => {
     if (!nextSession?.user) {
       setRole(null);
+      setProfileFullName(null);
       return;
     }
     const userId = nextSession.user.id;
@@ -98,7 +118,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRole(null);
     }
 
-    const liveRole = await fetchRole(userId);
+    const { role: liveRole, fullName } = await fetchProfileBasics(userId);
+    if (fullName) {
+      setProfileFullName(fullName);
+    } else {
+      setProfileFullName(null);
+    }
+
     if (liveRole) {
       setRole(liveRole);
       setCachedRole(userId, liveRole);
@@ -264,12 +290,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
   }, [session?.user.id]);
 
+  const displayName = profileFullName ?? displayNameFromSession(session);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       isLoading,
       isAuthenticated: Boolean(session),
       role,
       email: session?.user.email ?? null,
+      displayName,
       hasSupabaseCredentials,
       refreshRole,
       signInWithPassword,
@@ -281,6 +310,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       role,
       session,
+      displayName,
       refreshRole,
       signInWithGoogle,
       signInWithPassword,

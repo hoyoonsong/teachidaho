@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getParticipantVisibleEvent,
   listPublicTeamsForEvent,
+  parseScoreboardGridFromSettings,
   type EventRecord,
   type PublicScoreboardTeamRow,
   type ScoreboardGridState,
 } from "../lib/appDataStore";
+import { hasSupabaseCredentials, supabase } from "../lib/supabase";
+import { scoreboardRowTotal, sortTeamIdsByScoreThenName } from "../lib/scoreboardUtils";
 
 type ParticipantEventScoreboardPageProps = {
   eventId: string;
@@ -21,6 +24,7 @@ export function ParticipantEventScoreboardPage({
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [teams, setTeams] = useState<PublicScoreboardTeamRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedMobile, setExpandedMobile] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -30,10 +34,7 @@ export function ParticipantEventScoreboardPage({
         listPublicTeamsForEvent(eventId),
       ]);
       setEvent(ev);
-      const sorted = [...teamRows].sort((a, b) =>
-        a.teamName.localeCompare(b.teamName, undefined, { sensitivity: "base" }),
-      );
-      setTeams(sorted);
+      setTeams(teamRows);
     } finally {
       setLoading(false);
     }
@@ -43,22 +44,57 @@ export function ParticipantEventScoreboardPage({
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!hasSupabaseCredentials || !supabase) return;
+    const client = supabase;
+
+    const channel = client
+      .channel(`participant-scoreboard-${eventId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "events",
+          filter: `id=eq.${eventId}`,
+        },
+        (payload) => {
+          const row = payload.new as { custom_settings?: unknown };
+          const nextGrid = parseScoreboardGridFromSettings(
+            row.custom_settings as Parameters<typeof parseScoreboardGridFromSettings>[0],
+          );
+          if (nextGrid) {
+            setEvent((prev) => {
+              if (!prev) return prev;
+              return { ...prev, scoreboard: nextGrid };
+            });
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [eventId]);
+
   const grid = event?.scoreboard ?? emptyGrid();
 
-  /** Known teams from RPC, plus any row keys present only in the saved grid. */
   const displayTeams = useMemo(() => {
     const out = teams.slice();
     const seen = new Set(out.map((t) => t.id));
     for (const id of Object.keys(grid.cells)) {
       if (!seen.has(id)) {
-        out.push({ id, teamName: "Team", schoolName: "—" });
+        out.push({ id, teamName: "Team", schoolName: "" });
         seen.add(id);
       }
     }
-    return out.sort((a, b) =>
-      a.teamName.localeCompare(b.teamName, undefined, { sensitivity: "base" }),
-    );
-  }, [teams, grid.cells]);
+    return sortTeamIdsByScoreThenName(grid, out);
+  }, [teams, grid]);
+
+  function toggleMobileRow(teamId: string) {
+    setExpandedMobile((prev) => ({ ...prev, [teamId]: !prev[teamId] }));
+  }
 
   if (loading) {
     return (
@@ -80,13 +116,14 @@ export function ParticipantEventScoreboardPage({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-black tracking-tight text-slate-900">Scoreboard</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Live results for this event. Values are entered by event staff; this view is
-          read-only.
-        </p>
-      </div>
+      <p className="text-center text-sm text-slate-600">
+        Live results are read-only. Staff enter scores in the admin workspace.
+        {hasSupabaseCredentials && (
+          <span className="mt-1 block text-xs font-medium text-emerald-700">
+            Rankings update live when scores are saved.
+          </span>
+        )}
+      </p>
 
       {!hasColumns && (
         <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
@@ -101,41 +138,112 @@ export function ParticipantEventScoreboardPage({
       )}
 
       {hasColumns && displayTeams.length > 0 && (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <table className="min-w-[560px] w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left">
-                <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3 font-semibold text-slate-800">
-                  Team
-                </th>
-                <th className="px-4 py-3 font-semibold text-slate-800">School</th>
-                {grid.columns.map((col) => (
-                  <th
-                    key={col.id}
-                    className="min-w-[100px] px-3 py-3 text-xs font-semibold uppercase tracking-wide text-slate-700"
+        <>
+          {/* Mobile: compact leaderboard — team + total; tap for breakdown */}
+          <div className="space-y-2 md:hidden">
+            {displayTeams.map((team, index) => {
+              const total = scoreboardRowTotal(grid, team.id);
+              const open = Boolean(expandedMobile[team.id]);
+              return (
+                <div
+                  key={team.id}
+                  className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleMobileRow(team.id)}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-50/80"
                   >
-                    {col.label}
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-bold text-slate-600">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-slate-900">{team.teamName}</div>
+                      <div className="text-xs text-slate-500">
+                        {open ? "Hide score breakdown" : "Show score breakdown"}
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        Total
+                      </div>
+                      <div className="text-xl font-black tabular-nums text-slate-900">{total}</div>
+                    </div>
+                    <span
+                      className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
+                      aria-hidden
+                    >
+                      ▼
+                    </span>
+                  </button>
+                  {open && (
+                    <div className="space-y-2 border-t border-slate-100 bg-slate-50/90 px-4 py-3">
+                      {grid.columns.map((col) => (
+                        <div
+                          key={col.id}
+                          className="flex items-center justify-between gap-3 text-sm"
+                        >
+                          <span className="min-w-0 text-slate-600">{col.label}</span>
+                          <span className="shrink-0 font-semibold tabular-nums text-slate-900">
+                            {grid.cells[team.id]?.[col.id]?.trim() || "—"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop / tablet: full grid without school column */}
+          <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block">
+            <table className="w-full min-w-[480px] table-fixed border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-left">
+                  <th className="w-10 px-2 py-3 text-center text-xs font-semibold text-slate-600">
+                    #
                   </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {displayTeams.map((team) => (
-                <tr key={team.id} className="border-b border-slate-100 last:border-0">
-                  <td className="sticky left-0 z-10 bg-white px-4 py-3 font-medium text-slate-900">
-                    {team.teamName}
-                  </td>
-                  <td className="px-4 py-3 text-slate-700">{team.schoolName}</td>
+                  <th className="w-[28%] min-w-[140px] px-3 py-3 font-semibold text-slate-800">
+                    Team
+                  </th>
                   {grid.columns.map((col) => (
-                    <td key={col.id} className="px-3 py-3 text-slate-800 tabular-nums">
-                      {grid.cells[team.id]?.[col.id]?.trim() || "—"}
-                    </td>
+                    <th
+                      key={col.id}
+                      className="px-2 py-3 text-xs font-semibold uppercase tracking-wide text-slate-700"
+                    >
+                      {col.label}
+                    </th>
                   ))}
+                  <th className="w-16 px-2 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-800">
+                    Total
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {displayTeams.map((team, index) => (
+                  <tr key={team.id} className="border-b border-slate-100 last:border-0">
+                    <td className="px-2 py-3 text-center tabular-nums text-slate-500">
+                      {index + 1}
+                    </td>
+                    <td className="px-3 py-3 font-medium text-slate-900">{team.teamName}</td>
+                    {grid.columns.map((col) => (
+                      <td
+                        key={col.id}
+                        className="px-2 py-3 text-center text-slate-800 tabular-nums"
+                      >
+                        {grid.cells[team.id]?.[col.id]?.trim() || "—"}
+                      </td>
+                    ))}
+                    <td className="px-2 py-3 text-right text-sm font-bold tabular-nums text-slate-900">
+                      {scoreboardRowTotal(grid, team.id)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );

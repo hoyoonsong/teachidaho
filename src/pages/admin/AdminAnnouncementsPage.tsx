@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import RichTextDisplay from "../../components/richText/RichTextDisplay";
 import {
   createAnnouncement,
   listAllAnnouncements,
@@ -135,7 +136,9 @@ export function AdminAnnouncementsPage() {
                 {announcement.audience}
               </span>
             </div>
-            <p className="mt-2 text-sm text-slate-700">{announcement.body}</p>
+            <div className="mt-2 text-sm">
+              <RichTextDisplay content={announcement.body} />
+            </div>
             <p className="mt-2 text-xs text-slate-500">
               {new Date(announcement.createdAt).toLocaleString()}
             </p>

@@ -90,8 +90,12 @@ create table if not exists public.announcements (
   event_id uuid references public.events(id) on delete cascade,
   send_email boolean not null default false,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
 );
+
+-- Idempotent migration for existing DBs
+alter table public.announcements add column if not exists deleted_at timestamptz;
 
 -- ---------------------------------------------------------
 -- RESOURCES
@@ -204,6 +208,7 @@ create index if not exists idx_events_status on public.events(status);
 create index if not exists idx_events_slug on public.events(slug);
 create index if not exists idx_announcements_event_id on public.announcements(event_id);
 create index if not exists idx_announcements_audience on public.announcements(audience);
+create index if not exists idx_announcements_deleted_at on public.announcements(deleted_at);
 create index if not exists idx_resources_event_id on public.resources(event_id);
 create index if not exists idx_resources_category on public.resources(category);
 create index if not exists idx_form_definitions_event_scope on public.form_definitions(event_id, scope);
@@ -369,11 +374,16 @@ with check (public.has_any_role(array['admin']));
 drop policy if exists announcements_select_policy on public.announcements;
 create policy announcements_select_policy on public.announcements
 for select using (
-  audience = 'public'
-  or public.has_any_role(array['admin'])
-  or (audience = 'teachers' and public.has_any_role(array['teacher', 'admin']))
-  or (audience = 'volunteers' and public.has_any_role(array['volunteer', 'admin']))
-  or (audience = 'admins' and public.has_any_role(array['admin']))
+  public.has_any_role(array['admin'])
+  or (
+    deleted_at is null
+    and (
+      audience = 'public'
+      or (audience = 'teachers' and public.has_any_role(array['teacher', 'admin']))
+      or (audience = 'volunteers' and public.has_any_role(array['volunteer', 'admin']))
+      or (audience = 'admins' and public.has_any_role(array['admin']))
+    )
+  )
 );
 
 drop policy if exists announcements_admin_write_policy on public.announcements;
@@ -584,18 +594,27 @@ insert into public.form_definitions (
   'Reusable registration form for participating classrooms.',
   'teachers',
   '[
-    {"id":"schoolName","label":"School Name","type":"text","required":true,"placeholder":"Boise High School"},
-    {"id":"teacherName","label":"Teacher Name","type":"text","required":true,"placeholder":"Jordan Smith"},
-    {"id":"teacherEmail","label":"Teacher Email","type":"email","required":true,"placeholder":"teacher@school.org"},
-    {"id":"studentCount","label":"Number of Students","type":"number","required":true,"placeholder":"25"},
-    {"id":"gradeBand","label":"Grade Level","type":"select","required":true,"options":["9th","10th","11th","12th","Mixed"]},
-    {"id":"notes","label":"Notes","type":"textarea","required":false,"placeholder":"Share any constraints or support needed."},
-    {"id":"teacherConsent","label":"I confirm this submission is teacher-approved.","type":"checkbox","required":true}
+    {"id":"schoolName","label":"School Name","type":"text","required":true,"placeholder":"Boise High School","layout":{"mdColSpan":1}},
+    {"id":"teacherName","label":"Teacher Name","type":"text","required":true,"placeholder":"Jordan Smith","layout":{"mdColSpan":1}},
+    {"id":"teacherEmail","label":"Teacher Email","type":"email","required":true,"placeholder":"teacher@school.org","layout":{"mdColSpan":1}},
+    {"id":"notes","label":"Notes","type":"textarea","required":false,"placeholder":"Share any constraints or support needed.","layout":{"mdColSpan":3}},
+    {"id":"teacherConsent","label":"I confirm this submission is teacher-approved.","type":"checkbox","required":true,"layout":{"mdColSpan":3}}
   ]'::jsonb,
   1,
   true
 )
 on conflict do nothing;
+
+-- Keep embedded teacher-registration fields in sync when setup.sql is re-applied (existing rows).
+update public.form_definitions
+set fields = '[
+    {"id":"schoolName","label":"School Name","type":"text","required":true,"placeholder":"Boise High School","layout":{"mdColSpan":1}},
+    {"id":"teacherName","label":"Teacher Name","type":"text","required":true,"placeholder":"Jordan Smith","layout":{"mdColSpan":1}},
+    {"id":"teacherEmail","label":"Teacher Email","type":"email","required":true,"placeholder":"teacher@school.org","layout":{"mdColSpan":1}},
+    {"id":"notes","label":"Notes","type":"textarea","required":false,"placeholder":"Share any constraints or support needed.","layout":{"mdColSpan":3}},
+    {"id":"teacherConsent","label":"I confirm this submission is teacher-approved.","type":"checkbox","required":true,"layout":{"mdColSpan":3}}
+  ]'::jsonb
+where id = '8ea5baf4-5f77-4cb7-9a71-64225e0cdcb4';
 
 insert into public.announcements (title, body, audience, event_id)
 select

@@ -37,6 +37,17 @@ export type EventTeamRow = {
   teacherEmail: string;
 };
 
+/** Team row scoped to one registration (teacher or admin UI). */
+export type RegistrationTeamRecord = {
+  id: string;
+  registrationId: string;
+  /** Country or simulation team label (e.g. "Brazil"). */
+  teamName: string;
+  assignedCountry: string | null;
+  /** Student / member names parsed from roster JSON. */
+  memberNames: string[];
+};
+
 export type AnnouncementRecord = {
   id: string;
   title: string;
@@ -44,6 +55,8 @@ export type AnnouncementRecord = {
   audience: AnnouncementAudience;
   eventId: string | null;
   createdAt: string;
+  /** Set when soft-deleted; row is purged after ~30 days. */
+  deletedAt: string | null;
 };
 
 export type FormDefinitionRecord = DynamicFormDefinition & {
@@ -109,6 +122,7 @@ type AnnouncementRow = {
   audience: AnnouncementAudience;
   event_id: string | null;
   created_at: string;
+  deleted_at: string | null;
 };
 
 type FormDefinitionRow = {
@@ -163,7 +177,7 @@ function formatDateOnly(value: string | null) {
   return parsed.toISOString().slice(0, 10);
 }
 
-function parseScoreboardFromSettings(
+export function parseScoreboardGridFromSettings(
   settings: EventCustomSettings | null | undefined,
 ): ScoreboardGridState | undefined {
   const raw = settings?.scoreboard;
@@ -194,7 +208,7 @@ function parseScoreboardFromSettings(
 }
 
 function toEventRecord(row: EventRow): EventRecord {
-  const scoreboard = parseScoreboardFromSettings(row.custom_settings);
+  const scoreboard = parseScoreboardGridFromSettings(row.custom_settings);
   return {
     id: row.id,
     name: row.name,
@@ -216,7 +230,41 @@ function toAnnouncementRecord(row: AnnouncementRow): AnnouncementRecord {
     audience: row.audience,
     eventId: row.event_id,
     createdAt: row.created_at,
+    deletedAt: row.deleted_at ?? null,
   };
+}
+
+const LEGACY_REGISTRATION_FIELD_IDS = new Set(["studentCount", "gradeBand"]);
+
+function ensureTeacherRegistrationLayout(
+  fields: DynamicFormDefinition["fields"],
+): DynamicFormDefinition["fields"] {
+  return fields.map((f) => {
+    if (f.layout?.mdColSpan != null) return f;
+    if (f.id === "schoolName" || f.id === "teacherName" || f.id === "teacherEmail") {
+      return { ...f, layout: { mdColSpan: 1 as const } };
+    }
+    if (f.id === "notes" || f.type === "textarea") {
+      return { ...f, layout: { mdColSpan: 3 as const } };
+    }
+    if (f.type === "checkbox") {
+      return { ...f, layout: { mdColSpan: 3 as const } };
+    }
+    return f;
+  });
+}
+
+/** Strips deprecated fields and applies teacher-registration row layout when applicable. */
+export function normalizeParticipantRegistrationForm(
+  form: FormDefinitionRecord,
+): FormDefinitionRecord {
+  let fields = form.fields.filter((f) => !LEGACY_REGISTRATION_FIELD_IDS.has(f.id));
+  const looksLikeTeacherReg =
+    fields.some((f) => f.id === "schoolName") && fields.some((f) => f.id === "teacherEmail");
+  if (looksLikeTeacherReg) {
+    fields = ensureTeacherRegistrationLayout(fields);
+  }
+  return { ...form, fields };
 }
 
 function toFormDefinitionRecord(row: FormDefinitionRow): FormDefinitionRecord {
@@ -484,7 +532,7 @@ export async function listAnnouncementsForEvent(eventId: string) {
     if (!supabase) throw new Error("No supabase");
     const { data, error } = await supabase
       .from("announcements")
-      .select("id,title,body,audience,event_id,created_at")
+      .select("id,title,body,audience,event_id,created_at,deleted_at")
       .eq("event_id", eventId)
       .order("created_at", { ascending: false })
       .returns<AnnouncementRow[]>();
@@ -523,6 +571,168 @@ export async function listTeamsForEvent(eventId: string): Promise<EventTeamRow[]
     }
     return rows;
   }, async () => []);
+}
+
+type RosterEntry = { name: string };
+
+type RegistrationTeamDbRow = {
+  id: string;
+  registration_id: string;
+  team_name: string;
+  assigned_country: string | null;
+  roster: unknown;
+};
+
+export function parseMemberNamesText(text: string): string[] {
+  return text
+    .split(/\s*(?:,|\n|(?:\.\s+))\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function memberNamesToRoster(names: string[]): RosterEntry[] {
+  return names.map((name) => ({ name }));
+}
+
+function rosterToMemberNames(roster: unknown): string[] {
+  if (!Array.isArray(roster)) return [];
+  const out: string[] = [];
+  for (const item of roster) {
+    if (
+      item &&
+      typeof item === "object" &&
+      "name" in item &&
+      typeof (item as { name: unknown }).name === "string"
+    ) {
+      const n = (item as { name: string }).name.trim();
+      if (n) out.push(n);
+    }
+  }
+  return out;
+}
+
+function toRegistrationTeamRecord(row: RegistrationTeamDbRow): RegistrationTeamRecord {
+  return {
+    id: row.id,
+    registrationId: row.registration_id,
+    teamName: row.team_name,
+    assignedCountry: row.assigned_country,
+    memberNames: rosterToMemberNames(row.roster),
+  };
+}
+
+/**
+ * Ensure the current user has a registration row for this event (draft if new).
+ * Required before attaching teams; submitForm later upgrades the same row to submitted.
+ */
+export async function ensureTeacherRegistrationDraft(eventId: string): Promise<string | null> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData.user?.id;
+    if (!userId || !eventId) return null;
+
+    const { data: existing, error: exErr } = await supabase
+      .from("registrations")
+      .select("id")
+      .eq("event_id", eventId)
+      .eq("teacher_id", userId)
+      .maybeSingle<{ id: string }>();
+    if (exErr) throw exErr;
+    if (existing) return existing.id;
+
+    const { data, error } = await supabase
+      .from("registrations")
+      .insert({
+        event_id: eventId,
+        teacher_id: userId,
+        status: "draft",
+        school_name: "Pending",
+        class_name: null,
+        teacher_notes: null,
+        custom_fields: {},
+      })
+      .select("id")
+      .single<{ id: string }>();
+    if (error) throw error;
+    return data.id;
+  }, async () => null);
+}
+
+export async function listTeamsForRegistration(
+  registrationId: string,
+): Promise<RegistrationTeamRecord[]> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data, error } = await supabase
+      .from("teams")
+      .select("id,registration_id,team_name,assigned_country,roster")
+      .eq("registration_id", registrationId)
+      .order("created_at", { ascending: true })
+      .returns<RegistrationTeamDbRow[]>();
+    if (error) throw error;
+    return (data ?? []).map(toRegistrationTeamRecord);
+  }, async () => []);
+}
+
+export async function createRegistrationTeam(
+  registrationId: string,
+  input: { teamLabel: string; memberNamesText: string },
+): Promise<RegistrationTeamRecord | null> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const label = input.teamLabel.trim();
+    if (!label) throw new Error("Country or team name is required");
+    const roster = memberNamesToRoster(parseMemberNamesText(input.memberNamesText));
+    if (roster.length === 0) {
+      throw new Error("At least one team member name is required");
+    }
+    const { data, error } = await supabase
+      .from("teams")
+      .insert({
+        registration_id: registrationId,
+        team_name: label,
+        assigned_country: label,
+        roster,
+      })
+      .select("id,registration_id,team_name,assigned_country,roster")
+      .single<RegistrationTeamDbRow>();
+    if (error) throw error;
+    return toRegistrationTeamRecord(data);
+  }, async () => null);
+}
+
+export async function updateRegistrationTeam(
+  teamId: string,
+  input: { teamLabel?: string; memberNamesText?: string },
+): Promise<void> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const updates: Record<string, unknown> = {};
+    if (input.teamLabel !== undefined) {
+      const label = input.teamLabel.trim();
+      updates.team_name = label;
+      updates.assigned_country = label || null;
+    }
+    if (input.memberNamesText !== undefined) {
+      const names = parseMemberNamesText(input.memberNamesText);
+      if (names.length === 0) {
+        throw new Error("At least one team member name is required");
+      }
+      updates.roster = memberNamesToRoster(names);
+    }
+    if (Object.keys(updates).length === 0) return;
+    const { error } = await supabase.from("teams").update(updates).eq("id", teamId);
+    if (error) throw error;
+  }, async () => undefined);
+}
+
+export async function deleteRegistrationTeam(teamId: string): Promise<void> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { error } = await supabase.from("teams").delete().eq("id", teamId);
+    if (error) throw error;
+  }, async () => undefined);
 }
 
 /** Team + school for public participant scoreboard (RPC; no teacher PII). */
@@ -590,7 +800,7 @@ export async function listAnnouncementsForRole(role: UserRole | null) {
     if (!supabase) throw new Error("No supabase");
     const { data, error } = await supabase
       .from("announcements")
-      .select("id,title,body,audience,event_id,created_at")
+      .select("id,title,body,audience,event_id,created_at,deleted_at")
       .order("created_at", { ascending: false })
       .returns<AnnouncementRow[]>();
     if (error) throw error;
@@ -603,7 +813,7 @@ export async function listAllAnnouncements() {
     if (!supabase) throw new Error("No supabase");
     const { data, error } = await supabase
       .from("announcements")
-      .select("id,title,body,audience,event_id,created_at")
+      .select("id,title,body,audience,event_id,created_at,deleted_at")
       .order("created_at", { ascending: false })
       .returns<AnnouncementRow[]>();
     if (error) throw error;
@@ -612,7 +822,7 @@ export async function listAllAnnouncements() {
 }
 
 export async function createAnnouncement(
-  input: Omit<AnnouncementRecord, "id" | "createdAt">,
+  input: Omit<AnnouncementRecord, "id" | "createdAt" | "deletedAt">,
 ) {
   return withSupabase(async () => {
     if (!supabase) throw new Error("No supabase");
@@ -624,7 +834,7 @@ export async function createAnnouncement(
         audience: input.audience,
         event_id: input.eventId,
       })
-      .select("id,title,body,audience,event_id,created_at")
+      .select("id,title,body,audience,event_id,created_at,deleted_at")
       .single<AnnouncementRow>();
     if (error) throw error;
     return toAnnouncementRecord(data);
@@ -632,7 +842,69 @@ export async function createAnnouncement(
     ...input,
     id: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
+    deletedAt: null,
   }));
+}
+
+export async function updateAnnouncement(
+  announcementId: string,
+  patch: { title?: string; body?: string; audience?: AnnouncementAudience },
+) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const updates: Record<string, unknown> = {};
+    if (patch.title !== undefined) updates.title = patch.title;
+    if (patch.body !== undefined) updates.body = patch.body;
+    if (patch.audience !== undefined) updates.audience = patch.audience;
+    if (Object.keys(updates).length === 0) return null;
+    const { data, error } = await supabase
+      .from("announcements")
+      .update(updates)
+      .eq("id", announcementId)
+      .select("id,title,body,audience,event_id,created_at,deleted_at")
+      .single<AnnouncementRow>();
+    if (error) throw error;
+    return toAnnouncementRecord(data);
+  }, async () => null);
+}
+
+/** Soft-delete; row is removed from participant views until permanently deleted after ~30 days. */
+export async function softDeleteAnnouncement(announcementId: string) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { error } = await supabase
+      .from("announcements")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", announcementId);
+    if (error) throw error;
+  }, async () => undefined);
+}
+
+export async function restoreAnnouncement(announcementId: string) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { error } = await supabase
+      .from("announcements")
+      .update({ deleted_at: null })
+      .eq("id", announcementId);
+    if (error) throw error;
+  }, async () => undefined);
+}
+
+/** Permanently remove announcements soft-deleted more than 30 days ago (run periodically or on admin load). */
+export async function purgeExpiredSoftDeletedAnnouncements(): Promise<number> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from("announcements")
+      .delete()
+      .not("deleted_at", "is", null)
+      .lt("deleted_at", cutoff)
+      .select("id");
+    if (error) throw error;
+    return (data ?? []).length;
+  }, async () => 0);
 }
 
 export async function listFormDefinitions() {
@@ -655,8 +927,9 @@ export async function getRegistrationFormForEvent(eventId: string | null) {
   const defs = await listFormDefinitions();
   const activeDefs = defs.filter((form) => form.isActive);
   const eventSpecific = activeDefs.find((form) => form.eventId === eventId);
-  if (eventSpecific) return eventSpecific;
-  return activeDefs.find((form) => form.key === "teacher-registration") ?? null;
+  const picked =
+    eventSpecific ?? activeDefs.find((form) => form.key === "teacher-registration") ?? null;
+  return picked ? normalizeParticipantRegistrationForm(picked) : null;
 }
 
 export async function saveFormDefinition(
@@ -702,8 +975,7 @@ export async function submitForm(
 
     const customFields = input.payload;
     const schoolName = String(customFields.schoolName ?? "Unknown School");
-    const className =
-      customFields.gradeBand !== undefined ? String(customFields.gradeBand) : null;
+    const className = null;
     const teacherNotes =
       customFields.notes !== undefined ? String(customFields.notes) : null;
 

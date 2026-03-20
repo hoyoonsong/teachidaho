@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
+import RichTextDisplay from "../components/richText/RichTextDisplay";
 import {
   listActiveEvents,
   listAnnouncementsForRole,
@@ -28,13 +29,25 @@ function formatCardDate(value: string) {
 function statusBadge(event: EventRecord) {
   switch (event.status) {
     case "active":
-      return { label: "Active", className: "bg-emerald-100 text-emerald-800 ring-emerald-200/60" };
+      return {
+        label: "Active",
+        className: "bg-emerald-100 text-emerald-800 ring-emerald-200/60",
+      };
     case "published":
-      return { label: "Public", className: "bg-sky-100 text-sky-800 ring-sky-200/60" };
+      return {
+        label: "Public",
+        className: "bg-sky-100 text-sky-800 ring-sky-200/60",
+      };
     case "closed":
-      return { label: "Closed", className: "bg-amber-100 text-amber-900 ring-amber-200/70" };
+      return {
+        label: "Closed",
+        className: "bg-amber-100 text-amber-900 ring-amber-200/70",
+      };
     default:
-      return { label: event.status, className: "bg-slate-100 text-slate-700 ring-slate-200/80" };
+      return {
+        label: event.status,
+        className: "bg-slate-100 text-slate-700 ring-slate-200/80",
+      };
   }
 }
 
@@ -55,6 +68,11 @@ export function ParticipantsPage({ onNavigate }: ParticipantsPageProps) {
     loadData();
   }, [role]);
 
+  const visibleOrgAnnouncements = useMemo(
+    () => announcements.filter((a) => !a.deletedAt),
+    [announcements],
+  );
+
   const gridClass =
     "grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6";
 
@@ -69,8 +87,8 @@ export function ParticipantsPage({ onNavigate }: ParticipantsPageProps) {
             Active Events
           </h1>
           <p className="mt-4 max-w-4xl text-base leading-7 text-slate-700">
-            Open an event for details and announcements. Registration uses the same form as before
-            on the{" "}
+            Open an event for details and announcements. Registration uses the
+            same form as before on the{" "}
             <button
               type="button"
               onClick={() => onNavigate("/participants/register")}
@@ -98,7 +116,9 @@ export function ParticipantsPage({ onNavigate }: ParticipantsPageProps) {
                 >
                   <button
                     type="button"
-                    onClick={() => onNavigate(`/participants/event/${event.id}`)}
+                    onClick={() =>
+                      onNavigate(`/participants/event/${event.id}`)
+                    }
                     className="relative flex flex-1 flex-col p-5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 md:p-6"
                   >
                     <span
@@ -114,7 +134,9 @@ export function ParticipantsPage({ onNavigate }: ParticipantsPageProps) {
                         <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-slate-500">
                           {desc}
                         </p>
-                        <p className="mt-2 text-xs tabular-nums text-slate-400">{metaLine}</p>
+                        <p className="mt-2 text-xs tabular-nums text-slate-400">
+                          {metaLine}
+                        </p>
                       </>
                     ) : (
                       <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-slate-500">
@@ -141,25 +163,29 @@ export function ParticipantsPage({ onNavigate }: ParticipantsPageProps) {
             Announcements
           </h2>
           <p className="mt-2 text-sm text-slate-600">
-            Organization-wide updates (not tied to a single event). Sign in to see role-specific
-            notices when available.
+            Organization-wide updates (not tied to a single event). Sign in to
+            see role-specific notices when available.
           </p>
           <div className="mt-4 space-y-3">
-            {announcements.map((notice) => (
+            {visibleOrgAnnouncements.map((notice) => (
               <article
                 key={notice.id}
                 className="rounded-xl border border-slate-200 bg-slate-50 p-4"
               >
                 <div className="flex items-center gap-2">
-                  <h3 className="text-base font-bold text-slate-900">{notice.title}</h3>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {notice.title}
+                  </h3>
                   <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     {notice.audience}
                   </span>
                 </div>
-                <p className="mt-2 text-sm text-slate-700">{notice.body}</p>
+                <div className="mt-2 text-sm">
+                  <RichTextDisplay content={notice.body} />
+                </div>
               </article>
             ))}
-            {announcements.length === 0 && (
+            {visibleOrgAnnouncements.length === 0 && (
               <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
                 No announcements yet.
               </p>
