@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AdminShell, type AdminEventSection } from "./components/admin/AdminShell";
+import {
+  AdminShell,
+  type AdminEventSection,
+} from "./components/admin/AdminShell";
 import { ContactButtons } from "./components/ContactButtons";
 import { SiteFooter } from "./components/SiteFooter";
 import { SiteHeader } from "./components/SiteHeader";
@@ -16,13 +19,32 @@ import { HomePage } from "./pages/HomePage";
 import { ParticipantsPage } from "./pages/ParticipantsPage";
 import { ParticipantsRegisterPage } from "./pages/ParticipantsRegisterPage";
 import { PitchCompetitionPage } from "./pages/PitchCompetitionPage";
+import { AnnouncementsFeedPage } from "./pages/AnnouncementsFeedPage";
 import { AdminEventsPage } from "./pages/admin/AdminEventsPage";
 import { AdminEventWorkspace } from "./pages/admin/AdminEventWorkspace";
+import { AdminHubPage } from "./pages/admin/AdminHubPage";
+import { AdminAnnouncementsPage } from "./pages/admin/AdminAnnouncementsPage";
+import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import {
   ParticipantEventWorkspace,
   type ParticipantEventSection,
 } from "./pages/ParticipantEventWorkspace";
+import { EventAnnouncementsSubscribePage } from "./pages/EventAnnouncementsSubscribePage";
 import type { UserRole } from "./types/auth";
+
+function parseParticipantEventSubscribeRoute(pathname: string): {
+  eventId: string;
+} | null {
+  const m = pathname.match(/^\/participants\/event\/([^/]+)\/subscribe$/);
+  return m ? { eventId: m[1] } : null;
+}
+
+function parseSignupRole(
+  raw: string | null,
+): "teacher" | "student" | "volunteer" | undefined {
+  if (raw === "student" || raw === "volunteer" || raw === "teacher") return raw;
+  return undefined;
+}
 
 function parseEventAdminRoute(pathname: string): {
   eventId: string;
@@ -37,6 +59,8 @@ function parseEventAdminRoute(pathname: string): {
 
 function isAdminPathKnown(pathname: string): boolean {
   if (pathname === "/admin" || pathname === "/admin/events") return true;
+  if (pathname === "/admin/users") return true;
+  if (pathname === "/admin/announcements") return true;
   return parseEventAdminRoute(pathname) !== null;
 }
 
@@ -56,7 +80,6 @@ function parseParticipantEventRoute(pathname: string): {
 /** Old global admin URLs → normalized to event hub. */
 const LEGACY_ADMIN_PATHS: readonly string[] = [
   "/admin/registrations",
-  "/admin/announcements",
   "/admin/scoreboard",
 ];
 
@@ -78,15 +101,18 @@ function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  const navigate = useCallback((to: string) => {
-    const target = new URL(to, window.location.origin);
-    const next = `${target.pathname}${target.search}`;
-    const current = `${location.pathname}${location.search}`;
-    if (next === current) return;
-    window.history.pushState({}, "", next);
-    setLocation({ pathname: target.pathname, search: target.search });
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [location.pathname, location.search]);
+  const navigate = useCallback(
+    (to: string) => {
+      const target = new URL(to, window.location.origin);
+      const next = `${target.pathname}${target.search}`;
+      const current = `${location.pathname}${location.search}`;
+      if (next === current) return;
+      window.history.pushState({}, "", next);
+      setLocation({ pathname: target.pathname, search: target.search });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    [location.pathname, location.search],
+  );
 
   const handleSignOut = async () => {
     await signOut();
@@ -101,19 +127,23 @@ function App() {
     path === "/login" || path === "/participants/register" || isAdminPath;
 
   const participantEventRoute = parseParticipantEventRoute(path);
+  const participantSubscribeRoute = parseParticipantEventSubscribeRoute(path);
+  const signupRoleHint = parseSignupRole(searchParams.get("signupRole"));
 
   const isKnownPath =
     [
       "/",
       "/login",
       "/gallery",
+      "/announcements",
       "/info/econsummit",
       "/info/pitch-competition",
       "/participants",
       "/participants/register",
     ].includes(path) ||
     isAdminPathKnown(path) ||
-    participantEventRoute !== null;
+    participantEventRoute !== null ||
+    participantSubscribeRoute !== null;
 
   function accessDeniedView(allowedRoles: UserRole[]) {
     if (isAuthenticated && role === null) {
@@ -130,13 +160,17 @@ function App() {
       return (
         <main className="mx-auto w-[min(94vw,720px)] px-6 py-16">
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
-            <h1 className="text-2xl font-black text-amber-900">Login required</h1>
+            <h1 className="text-2xl font-black text-amber-900">
+              Login required
+            </h1>
             <p className="mt-2 text-sm text-amber-900/90">
               This page is restricted. Sign in to continue.
             </p>
             <button
               type="button"
-              onClick={() => navigate(`/login?redirectTo=${encodeURIComponent(path)}`)}
+              onClick={() =>
+                navigate(`/login?redirectTo=${encodeURIComponent(path)}`)
+              }
               className="mt-4 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
             >
               Go to login
@@ -165,6 +199,30 @@ function App() {
   function renderAdminPage() {
     if (role !== "admin") {
       return accessDeniedView(["admin"]);
+    }
+
+    if (path === "/admin") {
+      return (
+        <AdminShell mode="hub" onNavigate={navigate}>
+          <AdminHubPage onNavigate={navigate} />
+        </AdminShell>
+      );
+    }
+
+    if (path === "/admin/users") {
+      return (
+        <AdminShell mode="hub" onNavigate={navigate}>
+          <AdminUsersPage onNavigate={navigate} />
+        </AdminShell>
+      );
+    }
+
+    if (path === "/admin/announcements") {
+      return (
+        <AdminShell mode="hub" onNavigate={navigate}>
+          <AdminAnnouncementsPage />
+        </AdminShell>
+      );
     }
 
     const eventRoute = parseEventAdminRoute(path);
@@ -210,20 +268,26 @@ function App() {
       <div className="flex-1">
         {isLoading && needsAuthGate && (
           <main className="mx-auto w-[min(94vw,720px)] px-6 py-16">
-            <p className="text-sm font-semibold text-slate-600">Loading account...</p>
+            <p className="text-sm font-semibold text-slate-600">
+              Loading account...
+            </p>
           </main>
         )}
         {!isLoading && path === "/login" && (
-          <LoginPage onNavigate={navigate} redirectTo={redirectTo} />
+          <LoginPage
+            onNavigate={navigate}
+            redirectTo={redirectTo}
+            signupRole={signupRoleHint}
+          />
         )}
         {!isLoading && isAdminPath && renderAdminPage()}
-        {!isLoading && path === "/participants/register" && (
-          role === "teacher" || role === "admin" ? (
+        {!isLoading &&
+          path === "/participants/register" &&
+          (role === "teacher" || role === "admin" ? (
             <ParticipantsRegisterPage onNavigate={navigate} />
           ) : (
             accessDeniedView(["teacher", "admin"])
-          )
-        )}
+          ))}
         {path === "/" && (
           <HomePage
             onNavigate={navigate}
@@ -234,15 +298,26 @@ function App() {
         {path === "/gallery" && <GalleryPage mixedGallery={mixedGallery} />}
         {path === "/info/econsummit" && <EconSummitPage />}
         {path === "/info/pitch-competition" && <PitchCompetitionPage />}
+        {!isLoading && participantSubscribeRoute && (
+          <EventAnnouncementsSubscribePage
+            key={participantSubscribeRoute.eventId}
+            eventId={participantSubscribeRoute.eventId}
+            onNavigate={navigate}
+          />
+        )}
         {!isLoading && participantEventRoute && (
           <ParticipantEventWorkspace
             key={participantEventRoute.eventId}
             eventId={participantEventRoute.eventId}
             section={participantEventRoute.section}
             onNavigate={navigate}
+            locationPath={path}
           />
         )}
         {path === "/participants" && <ParticipantsPage onNavigate={navigate} />}
+        {path === "/announcements" && (
+          <AnnouncementsFeedPage onNavigate={navigate} />
+        )}
         {!isKnownPath && (
           <main className="mx-auto max-w-5xl px-6 py-20">
             <h1 className="text-4xl font-black text-slate-900">

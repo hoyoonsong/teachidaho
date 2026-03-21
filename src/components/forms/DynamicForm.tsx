@@ -21,7 +21,7 @@ type DynamicFormProps = {
 
 function getDefaultValue(field: FormFieldDefinition) {
   if (field.type === "checkbox") return false;
-  if (field.type === "select") return field.options[0] ?? "";
+  if (field.type === "select") return "";
   return "";
 }
 
@@ -152,6 +152,9 @@ export function DynamicForm({
               disabled={disabled}
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             >
+              <option value="">
+                {field.required ? "Please make a selection…" : "No selection (optional)"}
+              </option>
               {field.options.map((option) => (
                 <option key={option} value={option}>
                   {option}

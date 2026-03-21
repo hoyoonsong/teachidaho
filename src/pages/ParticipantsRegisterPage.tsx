@@ -44,27 +44,21 @@ export function ParticipantsRegisterPage({
     async function loadEvents() {
       const nextEvents = await listActiveEvents();
       setEvents(nextEvents);
-      if (!selectedEventId && nextEvents.length > 0) {
-        setSelectedEventId(nextEvents[0].id);
-      }
     }
-    loadEvents();
-  }, [selectedEventId]);
+    void loadEvents();
+  }, []);
 
   useEffect(() => {
+    if (!selectedEventId) return;
     async function loadForm() {
-      const nextForm = await getRegistrationFormForEvent(
-        selectedEventId || null,
-      );
+      const nextForm = await getRegistrationFormForEvent(selectedEventId);
       setFormDefinition(nextForm);
     }
-    loadForm();
+    void loadForm();
   }, [selectedEventId]);
 
   useEffect(() => {
     if (!hasTeacherAccess || !selectedEventId) {
-      setRegistrationId(null);
-      setRegistrationError(null);
       return;
     }
     let cancelled = false;
@@ -82,7 +76,7 @@ export function ParticipantsRegisterPage({
   }, [hasTeacherAccess, selectedEventId]);
 
   async function handleSubmit(values: FormSubmissionPayload) {
-    if (!formDefinition) return;
+    if (!formDefinition || !selectedEventId) return;
     await submitForm({
       formDefinitionId: formDefinition.id,
       eventId: selectedEventId || null,
@@ -154,11 +148,22 @@ export function ParticipantsRegisterPage({
                 <select
                   value={selectedEventId}
                   onChange={(event) => {
-                    setSelectedEventId(event.target.value);
+                    const nextId = event.target.value;
+                    setSelectedEventId(nextId);
                     setSuccessMessage(null);
+                    if (!nextId) {
+                      setFormDefinition(null);
+                      setRegistrationId(null);
+                      setRegistrationError(null);
+                    }
                   }}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 >
+                  <option value="">
+                    {events.length === 0
+                      ? "No events open for registration"
+                      : "Select an event…"}
+                  </option>
                   {events.map((eventItem) => (
                     <option key={eventItem.id} value={eventItem.id}>
                       {eventItem.name}
@@ -171,32 +176,42 @@ export function ParticipantsRegisterPage({
                 <p className="mt-3 text-sm text-amber-800">{registrationError}</p>
               )}
 
-              <div className="mt-6">
-                <RegistrationTeamsEditor
-                  registrationId={registrationId}
-                  title="Your teams"
-                />
-              </div>
-
-              {successMessage && (
-                <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                  {successMessage}
+              {!selectedEventId ? (
+                <p className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+                  Choose an event above to add teams and complete the registration form.
                 </p>
-              )}
-              {formDefinition && (
-                <div className="mt-6 border-t border-slate-100 pt-6">
-                  <h2 className="text-lg font-bold text-slate-900">School &amp; teacher details</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Notes and consent follow your contact information.
-                  </p>
-                  <DynamicForm
-                    key={`${formDefinition.id}-${selectedEventId}`}
-                    definition={formDefinition}
-                    prefillIfEmpty={teacherPrefillIfEmpty}
-                    submitLabel="Submit registration"
-                    onSubmit={handleSubmit}
-                  />
-                </div>
+              ) : (
+                <>
+                  <div className="mt-6">
+                    <RegistrationTeamsEditor
+                      registrationId={registrationId}
+                      title="Your teams"
+                    />
+                  </div>
+
+                  {successMessage && (
+                    <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                      {successMessage}
+                    </p>
+                  )}
+                  {formDefinition && (
+                    <div className="mt-6 border-t border-slate-100 pt-6">
+                      <h2 className="text-lg font-bold text-slate-900">
+                        School &amp; teacher details
+                      </h2>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Notes and consent follow your contact information.
+                      </p>
+                      <DynamicForm
+                        key={`${formDefinition.id}-${selectedEventId}`}
+                        definition={formDefinition}
+                        prefillIfEmpty={teacherPrefillIfEmpty}
+                        submitLabel="Submit registration"
+                        onSubmit={handleSubmit}
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

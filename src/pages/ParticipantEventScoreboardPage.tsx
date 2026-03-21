@@ -60,15 +60,22 @@ export function ParticipantEventScoreboardPage({
         },
         (payload) => {
           const row = payload.new as { custom_settings?: unknown };
+          const cs = row.custom_settings as
+            | { scoreboardVisibleToParticipants?: boolean }
+            | null
+            | undefined;
+          const vis = cs?.scoreboardVisibleToParticipants !== false;
           const nextGrid = parseScoreboardGridFromSettings(
             row.custom_settings as Parameters<typeof parseScoreboardGridFromSettings>[0],
           );
-          if (nextGrid) {
-            setEvent((prev) => {
-              if (!prev) return prev;
-              return { ...prev, scoreboard: nextGrid };
-            });
-          }
+          setEvent((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              scoreboardVisibleToParticipants: vis,
+              ...(nextGrid ? { scoreboard: nextGrid } : {}),
+            };
+          });
         },
       )
       .subscribe();
@@ -108,6 +115,18 @@ export function ParticipantEventScoreboardPage({
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
         This scoreboard isn&apos;t available.
+      </div>
+    );
+  }
+
+  if (!event.scoreboardVisibleToParticipants) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
+        <p className="font-semibold text-slate-900">Scoreboard not published for participants</p>
+        <p className="mt-2 text-slate-600">
+          Event staff have turned off the live scoreboard for this event. Check back later or
+          contact the organizer if you have questions.
+        </p>
       </div>
     );
   }
@@ -198,7 +217,7 @@ export function ParticipantEventScoreboardPage({
 
           {/* Desktop / tablet: full grid without school column */}
           <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block">
-            <table className="w-full min-w-[480px] table-fixed border-collapse text-sm">
+            <table className="w-max min-w-full min-w-[480px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left">
                   <th className="w-10 px-2 py-3 text-center text-xs font-semibold text-slate-600">
@@ -210,7 +229,8 @@ export function ParticipantEventScoreboardPage({
                   {grid.columns.map((col) => (
                     <th
                       key={col.id}
-                      className="px-2 py-3 text-xs font-semibold uppercase tracking-wide text-slate-700"
+                      title={col.label}
+                      className="min-w-[4rem] max-w-[9rem] break-words px-2 py-3 text-xs font-semibold uppercase tracking-wide text-slate-700"
                     >
                       {col.label}
                     </th>

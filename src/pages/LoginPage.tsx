@@ -4,9 +4,15 @@ import { useAuth } from "../hooks/useAuth";
 type LoginPageProps = {
   onNavigate: (to: string) => void;
   redirectTo?: string;
+  /** When set (e.g. from /login?signupRole=student), new accounts get this profile role. */
+  signupRole?: "teacher" | "student" | "volunteer";
 };
 
-export function LoginPage({ onNavigate, redirectTo = "/" }: LoginPageProps) {
+export function LoginPage({
+  onNavigate,
+  redirectTo = "/",
+  signupRole,
+}: LoginPageProps) {
   const {
     signInWithPassword,
     signUpWithPassword,
@@ -32,6 +38,12 @@ export function LoginPage({ onNavigate, redirectTo = "/" }: LoginPageProps) {
     }
   }, [isAuthenticated, onNavigate, safeRedirectTo]);
 
+  useEffect(() => {
+    if (signupRole === "student" || signupRole === "volunteer") {
+      setMode("signup");
+    }
+  }, [signupRole]);
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -41,7 +53,9 @@ export function LoginPage({ onNavigate, redirectTo = "/" }: LoginPageProps) {
     const nextError =
       mode === "signin"
         ? await signInWithPassword(email, password)
-        : await signUpWithPassword(email, password, fullName);
+        : await signUpWithPassword(email, password, fullName, {
+            signupRole: signupRole ?? "teacher",
+          });
 
     setIsSubmitting(false);
 
@@ -80,7 +94,8 @@ export function LoginPage({ onNavigate, redirectTo = "/" }: LoginPageProps) {
           {mode === "signin" ? "Sign in" : "Create account"}
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Teachers, volunteers, and admins can use the same login. Access to
+          Teachers, students, volunteers, and admins can use the same login.
+          Access to
           routes and tools is controlled by role.
         </p>
         {isAuthenticated && (
@@ -118,6 +133,20 @@ export function LoginPage({ onNavigate, redirectTo = "/" }: LoginPageProps) {
         </div>
 
         <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+          {mode === "signup" && signupRole === "student" && (
+            <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+              You&apos;re creating a <strong>student</strong> account to receive
+              event announcements. After confirming email (if required), sign in
+              and tap &quot;Receive student announcements&quot; on the event
+              page.
+            </p>
+          )}
+          {mode === "signup" && signupRole === "volunteer" && (
+            <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
+              You&apos;re creating a <strong>volunteer</strong> account. After
+              signing in, finish subscribing on the event page.
+            </p>
+          )}
           {mode === "signup" && (
             <label className="block text-sm font-medium text-slate-700">
               Full name
@@ -189,6 +218,12 @@ export function LoginPage({ onNavigate, redirectTo = "/" }: LoginPageProps) {
           >
             Continue with Google
           </button>
+          {(signupRole === "student" || signupRole === "volunteer") && (
+            <p className="text-center text-xs text-slate-500">
+              Google sign-up defaults to a teacher profile. For a{" "}
+              {signupRole} account, use email + password above.
+            </p>
+          )}
           {isAuthenticated && (
             <button
               type="button"

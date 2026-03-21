@@ -7,12 +7,26 @@ import {
   type ReactNode,
 } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { withNetworkRetries } from "../lib/networkRetry";
 import { hasSupabaseCredentials, supabase } from "../lib/supabase";
 import type { UserRole } from "../types/auth";
+
+const ROLE_CACHE_VALUES: readonly UserRole[] = [
+  "admin",
+  "teacher",
+  "volunteer",
+  "student",
+] as const;
+
+function isUserRole(s: string): s is UserRole {
+  return (ROLE_CACHE_VALUES as readonly string[]).includes(s);
+}
 
 type AuthContextValue = {
   isLoading: boolean;
   isAuthenticated: boolean;
+  /** Supabase auth user id when signed in. */
+  userId: string | null;
   role: UserRole | null;
   email: string | null;
   /** Best-effort display name from profile or auth metadata (user may edit on forms). */
@@ -24,6 +38,7 @@ type AuthContextValue = {
     email: string,
     password: string,
     fullName?: string,
+    options?: { signupRole?: "teacher" | "student" | "volunteer" },
   ) => Promise<string | null>;
   signInWithGoogle: (redirectTo?: string) => Promise<string | null>;
   signOut: () => Promise<void>;
@@ -42,9 +57,7 @@ function roleCacheKey(userId: string) {
 
 function getCachedRole(userId: string): UserRole | null {
   const cached = window.localStorage.getItem(roleCacheKey(userId));
-  if (cached === "admin" || cached === "teacher" || cached === "volunteer") {
-    return cached;
-  }
+  if (cached && isUserRole(cached)) return cached;
   return null;
 }
 
@@ -59,34 +72,32 @@ function clearCachedRole(userId: string) {
 async function fetchProfileBasics(
   userId: string,
 ): Promise<{ role: UserRole | null; fullName: string | null }> {
-  if (!supabase) return { role: null, fullName: null };
+  const client = supabase;
+  if (!client) return { role: null, fullName: null };
 
   try {
-    const query = supabase
-      .from("profiles")
-      .select("role, full_name")
-      .eq("id", userId)
-      .single<ProfileRow>();
-
-    const timeout = new Promise<null>((resolve) => {
-      window.setTimeout(() => resolve(null), 2500);
+    const result = await withNetworkRetries(async () => {
+      const res = await client
+        .from("profiles")
+        .select("role, full_name")
+        .eq("id", userId)
+        .single<ProfileRow>();
+      if (res.error?.code === "PGRST116") return res;
+      if (res.error) throw res.error;
+      return res;
     });
 
-    const result = await Promise.race([query, timeout]);
-    if (!result) return { role: null, fullName: null };
-
-    if (!result.error && result.data) {
-      const fn = result.data.full_name?.trim() || null;
-      return {
-        role: result.data.role ?? null,
-        fullName: fn,
-      };
+    if (result.error || !result.data) {
+      return { role: null, fullName: null };
     }
+    const fn = result.data.full_name?.trim() || null;
+    return {
+      role: result.data.role ?? null,
+      fullName: fn,
+    };
   } catch {
     return { role: null, fullName: null };
   }
-
-  return { role: null, fullName: null };
 }
 
 function displayNameFromSession(session: Session | null): string | null {
@@ -149,18 +160,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
     async function bootstrap() {
       try {
-        const sessionQuery = supabaseClient.auth.getSession();
-        const timeout = new Promise<null>((resolve) => {
-          window.setTimeout(() => resolve(null), 3000);
-        });
-
-        const sessionResult = await Promise.race([sessionQuery, timeout]);
+        const sessionResult = await withNetworkRetries(
+          () => supabaseClient.auth.getSession(),
+          { retries: 5, delayMs: 400 },
+        );
         if (!active) return;
-        if (!sessionResult) {
-          setSession(null);
-          setRole(null);
-          return;
-        }
 
         const nextSession = sessionResult.data.session;
 
@@ -200,13 +204,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [resolveRoleFromSession]);
 
+  /** When the tab wakes up, refresh the session (timers / fetch were often throttled while hidden). */
+  useEffect(() => {
+    if (!hasSupabaseCredentials || !supabase) return;
+    const client = supabase;
+
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void (async () => {
+        try {
+          client.auth.startAutoRefresh();
+        } catch {
+          /* ignore */
+        }
+        try {
+          const { data } = await withNetworkRetries(
+            () => client.auth.getSession(),
+            { retries: 4, delayMs: 400 },
+          );
+          setSession(data.session);
+          await resolveRoleFromSession(data.session);
+        } catch (e) {
+          console.warn("Session refresh after tab focus failed.", e);
+        }
+      })();
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onVisible);
+    };
+  }, [resolveRoleFromSession]);
+
   const refreshRole = useCallback(async () => {
-    if (!supabase || !hasSupabaseCredentials) return;
-    const {
-      data: { session: nextSession },
-    } = await supabase.auth.getSession();
-    setSession(nextSession);
-    await resolveRoleFromSession(nextSession);
+    const client = supabase;
+    if (!client || !hasSupabaseCredentials) return;
+    try {
+      const {
+        data: { session: nextSession },
+      } = await withNetworkRetries(() => client.auth.getSession(), {
+        retries: 4,
+        delayMs: 350,
+      });
+      setSession(nextSession);
+      await resolveRoleFromSession(nextSession);
+    } catch (e) {
+      console.warn("refreshRole failed", e);
+    }
   }, [resolveRoleFromSession]);
 
   const signInWithPassword = useCallback(
@@ -232,17 +278,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: string,
       password: string,
       fullName?: string,
+      options?: { signupRole?: "teacher" | "student" | "volunteer" },
     ): Promise<string | null> => {
       if (!supabase || !hasSupabaseCredentials) {
         return "Supabase auth is not configured yet.";
       }
 
+      const role = options?.signupRole ?? "teacher";
       const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
             full_name: fullName?.trim() || undefined,
+            signup_role: role,
           },
         },
       });
@@ -296,6 +345,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       isLoading,
       isAuthenticated: Boolean(session),
+      userId: session?.user.id ?? null,
       role,
       email: session?.user.email ?? null,
       displayName,
@@ -310,6 +360,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       role,
       session,
+      session?.user.id,
       displayName,
       refreshRole,
       signInWithGoogle,

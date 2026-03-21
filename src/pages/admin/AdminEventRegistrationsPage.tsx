@@ -5,9 +5,7 @@ import { RegistrationTeamsEditor } from "../../components/registration/Registrat
 import {
   listRegistrationsForEvent,
   updateRegistrationFields,
-  updateSubmissionStatus,
   type RegistrationDetailRecord,
-  type SubmissionStatus,
 } from "../../lib/appDataStore";
 import type { FormSubmissionPayload } from "../../types/forms";
 
@@ -22,18 +20,23 @@ function payloadString(payload: FormSubmissionPayload, key: string): string {
   return String(v).trim();
 }
 
-function statusPillClass(active: boolean) {
-  return active
-    ? "bg-slate-900 text-white ring-2 ring-slate-900 ring-offset-1"
-    : "border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50";
+function shortId(id: string) {
+  if (id.length <= 10) return id;
+  return `${id.slice(0, 8)}…`;
 }
 
-export function AdminEventRegistrationsPage({ eventId }: AdminEventRegistrationsPageProps) {
+export function AdminEventRegistrationsPage({
+  eventId,
+}: AdminEventRegistrationsPageProps) {
   const [rows, setRows] = useState<RegistrationDetailRecord[]>([]);
   const [edits, setEdits] = useState<
-    Record<string, { schoolName: string; className: string; teacherNotes: string }>
+    Record<
+      string,
+      { schoolName: string; className: string; teacherNotes: string }
+    >
   >({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [savingNotesId, setSavingNotesId] = useState<string | null>(null);
   const [adminModalId, setAdminModalId] = useState<string | null>(null);
 
   async function load() {
@@ -54,7 +57,7 @@ export function AdminEventRegistrationsPage({ eventId }: AdminEventRegistrations
     void load();
   }, [eventId]);
 
-  async function handleSaveAdminFields(registrationId: string) {
+  async function handleSaveSchoolClass(registrationId: string) {
     const patch = edits[registrationId];
     if (!patch) return;
     setSavingId(registrationId);
@@ -62,7 +65,6 @@ export function AdminEventRegistrationsPage({ eventId }: AdminEventRegistrations
       await updateRegistrationFields(registrationId, {
         school_name: patch.schoolName,
         class_name: patch.className.trim() ? patch.className : null,
-        teacher_notes: patch.teacherNotes.trim() ? patch.teacherNotes : null,
       });
       await load();
       setAdminModalId(null);
@@ -71,9 +73,18 @@ export function AdminEventRegistrationsPage({ eventId }: AdminEventRegistrations
     }
   }
 
-  async function handleStatusChange(submissionId: string, status: SubmissionStatus) {
-    await updateSubmissionStatus(submissionId, status);
-    await load();
+  async function handleSaveAdminNotes(registrationId: string) {
+    const patch = edits[registrationId];
+    if (!patch) return;
+    setSavingNotesId(registrationId);
+    try {
+      await updateRegistrationFields(registrationId, {
+        teacher_notes: patch.teacherNotes.trim() ? patch.teacherNotes : null,
+      });
+      await load();
+    } finally {
+      setSavingNotesId(null);
+    }
   }
 
   const adminModalSubmission = adminModalId
@@ -91,8 +102,9 @@ export function AdminEventRegistrationsPage({ eventId }: AdminEventRegistrations
           Teachers &amp; schools
         </h2>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
-          Each card is one registration: school and teacher are highlighted; contact and review
-          details stay secondary. Teams and notes from the teacher sit together in the same card.
+          Each card is one row per signed-in teacher for this event. The
+          registration is keyed by account ID, not the school name—so two
+          teachers never merge, and renaming a school only changes the label.
         </p>
       </div>
 
@@ -102,106 +114,124 @@ export function AdminEventRegistrationsPage({ eventId }: AdminEventRegistrations
         </div>
       )}
 
-      <div className="space-y-6">
+      <div className="space-y-4">
         {rows.map((submission) => {
           const teacherName =
             payloadString(submission.payload, "teacherName") || "Teacher";
           const teacherEmail =
-            payloadString(submission.payload, "teacherEmail") || submission.submittedBy;
+            payloadString(submission.payload, "teacherEmail") ||
+            submission.submittedBy;
           const formNotes = payloadString(submission.payload, "notes");
-          const submittedAt = new Date(submission.createdAt).toLocaleString(undefined, {
-            dateStyle: "medium",
-            timeStyle: "short",
-          });
+          const submittedAt = new Date(submission.createdAt).toLocaleString(
+            undefined,
+            {
+              dateStyle: "medium",
+              timeStyle: "short",
+            },
+          );
+          const patch = edits[submission.id];
 
           return (
             <article
               key={submission.id}
               className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-100"
             >
-              <div className="border-l-4 border-l-emerald-600 px-5 pb-5 pt-6 sm:px-7">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                      School
-                    </p>
-                    <h3 className="mt-1 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
-                      {submission.schoolName}
-                    </h3>
-                    <p className="mt-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                      Teacher
-                    </p>
-                    <p className="mt-0.5 text-xl font-bold text-slate-800 sm:text-2xl">
-                      {teacherName}
-                    </p>
-                    <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-slate-500">
-                      <span className="font-medium text-slate-600">{teacherEmail}</span>
-                      <span className="hidden text-slate-300 sm:inline" aria-hidden>
-                        ·
-                      </span>
-                      <span>Submitted {submittedAt}</span>
-                      <span className="hidden text-slate-300 sm:inline" aria-hidden>
-                        ·
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
-                          submission.status === "accepted"
-                            ? "bg-emerald-100 text-emerald-900"
-                            : submission.status === "rejected"
-                              ? "bg-rose-100 text-rose-900"
-                              : "bg-amber-100 text-amber-900"
-                        }`}
-                      >
-                        {submission.status === "accepted"
-                          ? "Accepted"
-                          : submission.status === "rejected"
-                            ? "Rejected"
-                            : "Pending"}
-                      </span>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {(["pending", "accepted", "rejected"] as SubmissionStatus[]).map(
-                        (status) => (
-                          <button
-                            key={status}
-                            type="button"
-                            onClick={() => void handleStatusChange(submission.id, status)}
-                            className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition ${statusPillClass(
-                              submission.status === status,
-                            )}`}
-                          >
-                            {status}
-                          </button>
-                        ),
-                      )}
-                    </div>
-                  </div>
+              <div className="border-l-4 border-l-emerald-600 px-4 pb-4 pt-4 sm:px-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="min-w-0 text-lg font-black tracking-tight text-slate-900 sm:text-xl">
+                    <span className="text-slate-900">{submission.schoolName}</span>
+                    <span className="mx-2 font-medium text-slate-300">—</span>
+                    <span className="text-slate-800">{teacherName}</span>
+                  </h3>
                   <PencilIconButton
                     onClick={() => setAdminModalId(submission.id)}
-                    label={`Edit registration record for ${submission.schoolName}`}
+                    label={`Edit school / class for ${submission.schoolName}`}
                   />
                 </div>
 
-                {formNotes ? (
-                  <div className="mt-6 rounded-xl bg-slate-50/90 px-4 py-3 ring-1 ring-slate-200/80">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                      Teacher notes (from form)
+                <details className="mt-3 rounded-xl border border-slate-200 bg-slate-50/60 text-sm">
+                  <summary className="cursor-pointer select-none px-3 py-2.5 font-semibold text-slate-700 hover:bg-slate-100/80">
+                    Registration details
+                  </summary>
+                  <div className="space-y-3 border-t border-slate-200/80 px-3 py-3 text-slate-600">
+                    <p className="text-xs leading-relaxed text-slate-500">
+                      <span className="font-semibold text-slate-600">
+                        Account ID:
+                      </span>{" "}
+                      <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px] text-slate-800 ring-1 ring-slate-200">
+                        {shortId(submission.teacherId)}
+                      </code>{" "}
+                      — distinguishes teachers and survives school renames.
                     </p>
-                    <p className="mt-1.5 text-sm leading-relaxed text-slate-700">{formNotes}</p>
+                    <p className="text-xs">
+                      <span className="font-semibold text-slate-700">
+                        {teacherEmail}
+                      </span>
+                      <span className="text-slate-400"> · </span>
+                      <span>Submitted {submittedAt}</span>
+                    </p>
+                    {formNotes ? (
+                      <div className="rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200/80">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          From teacher (form)
+                        </p>
+                        <p className="mt-1 text-sm leading-relaxed text-slate-700">
+                          {formNotes}
+                        </p>
+                      </div>
+                    ) : null}
+                    <details className="rounded-lg bg-white ring-1 ring-slate-200/80">
+                      <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-slate-600">
+                        Raw form JSON
+                      </summary>
+                      <pre className="max-h-40 overflow-auto border-t border-slate-100 p-2 text-[10px] text-slate-600">
+                        {JSON.stringify(submission.payload, null, 2)}
+                      </pre>
+                    </details>
                   </div>
-                ) : null}
+                </details>
 
-                {submission.teacherNotes?.trim() ? (
-                  <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-3">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50/90 px-3 py-2.5 ring-1 ring-violet-100">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-violet-800">
                       Admin notes
+                      <span className="ml-1.5 font-normal normal-case text-violet-700">
+                        (internal, editable)
+                      </span>
                     </p>
-                    <p className="mt-1 text-sm text-slate-600">{submission.teacherNotes}</p>
+                    <button
+                      type="button"
+                      disabled={
+                        savingNotesId === submission.id || patch === undefined
+                      }
+                      onClick={() => void handleSaveAdminNotes(submission.id)}
+                      className="rounded-md bg-violet-700 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-violet-800 disabled:opacity-50"
+                    >
+                      {savingNotesId === submission.id ? "Saving…" : "Save"}
+                    </button>
                   </div>
-                ) : null}
+                  <textarea
+                    rows={2}
+                    value={patch?.teacherNotes ?? ""}
+                    onChange={(ev) =>
+                      setEdits((cur) => {
+                        const prev = cur[submission.id];
+                        if (!prev) return cur;
+                        return {
+                          ...cur,
+                          [submission.id]: {
+                            ...prev,
+                            teacherNotes: ev.target.value,
+                          },
+                        };
+                      })
+                    }
+                    placeholder="Only staff see this…"
+                    className="mt-2 w-full resize-y rounded-md border border-violet-200/80 bg-white px-2 py-1.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
+                  />
+                </div>
 
-                <div className="mt-6">
+                <div className="mt-4">
                   <RegistrationTeamsEditor
                     registrationId={submission.id}
                     title="Teams for this school"
@@ -209,15 +239,6 @@ export function AdminEventRegistrationsPage({ eventId }: AdminEventRegistrations
                     onTeamsChanged={() => void load()}
                   />
                 </div>
-
-                <details className="mt-5 rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm">
-                  <summary className="cursor-pointer font-semibold text-slate-600">
-                    Raw submitted form (JSON)
-                  </summary>
-                  <pre className="mt-3 max-h-48 overflow-auto rounded-lg bg-white p-3 text-[11px] text-slate-600 ring-1 ring-slate-200">
-                    {JSON.stringify(submission.payload, null, 2)}
-                  </pre>
-                </details>
               </div>
             </article>
           );
@@ -226,8 +247,8 @@ export function AdminEventRegistrationsPage({ eventId }: AdminEventRegistrations
 
       <AdminModal
         open={Boolean(adminModalSubmission && adminModalEdits)}
-        title="Edit registration record"
-        description="School display name, optional class label, and internal admin notes."
+        title="School & class"
+        description="Display name and optional class label. Admin notes are edited on the card."
         onClose={() => setAdminModalId(null)}
         footer={
           adminModalSubmission && adminModalEdits ? (
@@ -258,7 +279,7 @@ export function AdminEventRegistrationsPage({ eventId }: AdminEventRegistrations
             className="space-y-4"
             onSubmit={(ev: FormEvent) => {
               ev.preventDefault();
-              void handleSaveAdminFields(adminModalSubmission.id);
+              void handleSaveSchoolClass(adminModalSubmission.id);
             }}
           >
             <label className="block">
@@ -291,25 +312,6 @@ export function AdminEventRegistrationsPage({ eventId }: AdminEventRegistrations
                     [adminModalSubmission.id]: {
                       ...adminModalEdits,
                       className: ev.target.value,
-                    },
-                  }))
-                }
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Admin notes (internal)
-              </span>
-              <textarea
-                rows={4}
-                value={adminModalEdits.teacherNotes}
-                onChange={(ev) =>
-                  setEdits((cur) => ({
-                    ...cur,
-                    [adminModalSubmission.id]: {
-                      ...adminModalEdits,
-                      teacherNotes: ev.target.value,
                     },
                   }))
                 }

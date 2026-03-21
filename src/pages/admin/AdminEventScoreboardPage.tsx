@@ -4,6 +4,7 @@ import {
   getEventById,
   listTeamsForEvent,
   saveEventScoreboard,
+  saveScoreboardParticipantVisibility,
   type EventTeamRow,
   type ScoreboardColumn,
   type ScoreboardGridState,
@@ -27,6 +28,8 @@ export function AdminEventScoreboardPage({ eventId }: AdminEventScoreboardPagePr
   const [persistError, setPersistError] = useState<string | null>(null);
   const [newColLabel, setNewColLabel] = useState("");
   const [rowOrder, setRowOrder] = useState<RowOrderMode>("alphabetical");
+  const [participantVisible, setParticipantVisible] = useState(true);
+  const [visibilityError, setVisibilityError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,6 +49,8 @@ export function AdminEventScoreboardPage({ eventId }: AdminEventScoreboardPagePr
         if (!cells[t.id]) cells[t.id] = {};
       }
       setGrid({ columns: g.columns.length ? g.columns : [], cells });
+      setParticipantVisible(event?.scoreboardVisibleToParticipants !== false);
+      setVisibilityError(null);
       setPersistError(null);
     } finally {
       setLoading(false);
@@ -161,9 +166,45 @@ export function AdminEventScoreboardPage({ eventId }: AdminEventScoreboardPagePr
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h1 className="text-2xl font-black tracking-tight text-slate-900">Scoreboard</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Spreadsheet uses full window width below. School and teacher sit under each team name.
-          Remove a score column with the trash icon. Values save when you leave a cell.
+          Same content width as other event admin pages; scroll horizontally if you add many
+          columns. School and teacher sit under each team name. Remove a score column with the
+          trash icon. Values save when you leave a cell.
         </p>
+        <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300"
+            checked={participantVisible}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setParticipantVisible(next);
+              setVisibilityError(null);
+              void (async () => {
+                try {
+                  await saveScoreboardParticipantVisibility(eventId, next);
+                } catch (err) {
+                  console.warn(err);
+                  setParticipantVisible(!next);
+                  setVisibilityError(
+                    "Could not update scoreboard visibility. Check your connection and try again.",
+                  );
+                }
+              })();
+            }}
+          />
+          <span>
+            <span className="font-semibold text-slate-900">
+              Show live scoreboard to participants
+            </span>
+            <span className="mt-0.5 block text-slate-600">
+              When off, teachers and students won&apos;t see the Scoreboard tab or read-only
+              results (default: on).
+            </span>
+          </span>
+        </label>
+        {visibilityError && (
+          <p className="mt-2 text-sm font-medium text-rose-700">{visibilityError}</p>
+        )}
         {persistError && (
           <p className="mt-2 text-sm font-medium text-rose-700">{persistError}</p>
         )}
@@ -229,20 +270,17 @@ export function AdminEventScoreboardPage({ eventId }: AdminEventScoreboardPagePr
             </div>
           </div>
 
-          {/* Break out of admin max-width so the grid can use the full viewport */}
-          <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen max-w-[100vw]">
-            <div className="px-3 pb-8 sm:px-5 lg:px-8">
-              <div className="max-h-[min(78vh,calc(100dvh-11rem))] overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <table className="w-full min-w-[720px] table-fixed border-collapse text-sm lg:min-w-0">
+          <div className="max-h-[min(78vh,calc(100dvh-11rem))] overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <table className="min-w-[720px] w-max max-w-none border-collapse text-sm">
                   <thead className="sticky top-0 z-20 shadow-sm">
                     <tr className="border-b border-slate-200 bg-slate-50 text-left">
-                      <th className="sticky left-0 z-30 w-[min(22vw,220px)] min-w-[160px] bg-slate-50 px-2 py-2 pl-3 text-xs font-semibold uppercase tracking-wide text-slate-700">
+                      <th className="sticky left-0 z-30 min-w-[160px] max-w-[220px] bg-slate-50 px-2 py-2 pl-3 text-xs font-semibold uppercase tracking-wide text-slate-700">
                         Team
                       </th>
                       {grid.columns.map((col) => (
                         <th
                           key={col.id}
-                          className="w-24 min-w-[5.5rem] px-1 py-2 align-bottom lg:w-28"
+                          className="min-w-[5.5rem] max-w-[10rem] px-1 py-2 align-bottom"
                         >
                           <div className="flex items-end gap-0.5">
                             <input
@@ -257,7 +295,7 @@ export function AdminEventScoreboardPage({ eventId }: AdminEventScoreboardPagePr
                                 }));
                               }}
                               onBlur={(e) => commitColumnLabel(col.id, e.target.value)}
-                              className="min-w-0 flex-1 rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-800 sm:text-xs"
+                              className="min-w-0 max-w-full flex-1 rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-800 sm:text-xs"
                             />
                             <TrashIconButton
                               onClick={() => removeColumn(col.id)}
@@ -275,7 +313,7 @@ export function AdminEventScoreboardPage({ eventId }: AdminEventScoreboardPagePr
                   <tbody>
                     {displayTeams.map((team) => (
                       <tr key={team.id} className="border-b border-slate-100">
-                        <td className="sticky left-0 z-10 w-[min(22vw,220px)] min-w-[160px] bg-white px-2 py-2 pl-3 align-top shadow-[4px_0_12px_-6px_rgba(15,23,42,0.15)]">
+                        <td className="sticky left-0 z-10 min-w-[160px] max-w-[220px] bg-white px-2 py-2 pl-3 align-top shadow-[4px_0_12px_-6px_rgba(15,23,42,0.15)]">
                           <div className="font-semibold leading-snug text-slate-900">
                             {team.teamName}
                           </div>
@@ -301,9 +339,7 @@ export function AdminEventScoreboardPage({ eventId }: AdminEventScoreboardPagePr
                       </tr>
                     ))}
                   </tbody>
-                </table>
-              </div>
-            </div>
+            </table>
           </div>
         </>
       )}

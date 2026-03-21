@@ -22,6 +22,14 @@ function getSupabaseClient() {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      flowType: "pkce",
+      /**
+       * Default Web Locks (navigator.locks) + React 19 dev / double effects + multiple
+       * components calling Supabase at once causes "Lock broken by steal" / orphaned
+       * lock warnings and failed getSession. A no-op lock is fine for a typical
+       * single-tab app; use the default if you need strict multi-tab coordination.
+       */
+      lock: async (_name, _acquireTimeout, fn) => fn(),
     },
   });
   window.__teachIdahoSupabaseClient = client;
@@ -29,3 +37,10 @@ function getSupabaseClient() {
 }
 
 export const supabase: SupabaseClient | null = getSupabaseClient();
+
+/** Dev: drop singleton on HMR so auth options (e.g. custom lock) actually apply. */
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    delete window.__teachIdahoSupabaseClient;
+  });
+}

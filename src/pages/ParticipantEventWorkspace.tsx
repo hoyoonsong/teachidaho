@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
-import RichTextDisplay from "../components/richText/RichTextDisplay";
+import { ParticipantEventAnnouncementsList } from "../components/announcements/ParticipantEventAnnouncementsList";
 import {
-  filterAnnouncementsByRole,
   getParticipantVisibleEvent,
-  listAnnouncementsForEvent,
-  type AnnouncementRecord,
+  participantCanViewEventScopedAnnouncements,
+  unsubscribeFromEventAnnouncements,
   type EventRecord,
 } from "../lib/appDataStore";
 import { ParticipantEventScoreboardPage } from "./ParticipantEventScoreboardPage";
@@ -16,6 +15,8 @@ type ParticipantEventWorkspaceProps = {
   eventId: string;
   section: ParticipantEventSection;
   onNavigate: (to: string) => void;
+  /** Current app path — used to re-check opt-in when returning from /subscribe. */
+  locationPath: string;
 };
 
 function formatLongDate(value: string) {
@@ -37,18 +38,32 @@ const TABS: { id: ParticipantEventSection; label: string; suffix: string }[] = [
   { id: "scoreboard", label: "Scoreboard", suffix: "/scoreboard" },
 ];
 
+function participantSectionTabs(event: EventRecord | null) {
+  if (event && !event.scoreboardVisibleToParticipants) {
+    return TABS.filter((t) => t.id !== "scoreboard");
+  }
+  return TABS;
+}
+
 export function ParticipantEventWorkspace({
   eventId,
   section,
   onNavigate,
+  locationPath,
 }: ParticipantEventWorkspaceProps) {
-  const { role } = useAuth();
-  const canRegister = role === "teacher" || role === "admin";
-  const registerTarget = `/participants/register?eventId=${encodeURIComponent(eventId)}`;
-
+  const { isAuthenticated, role, isLoading: authLoading, userId } = useAuth();
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [loading, setLoading] = useState(true);
-  const [announcements, setAnnouncements] = useState<AnnouncementRecord[]>([]);
+  const [canViewEventFeed, setCanViewEventFeed] = useState(false);
+  const [feedAccessLoading, setFeedAccessLoading] = useState(true);
+  const [feedRefreshKey, setFeedRefreshKey] = useState(0);
+
+  /** Students/volunteers who are not opted in yet (teachers/admins use registration or global tools). */
+  const showSubscribeCta =
+    !authLoading &&
+    !feedAccessLoading &&
+    !canViewEventFeed &&
+    !(role === "teacher" || role === "admin");
 
   const loadEvent = useCallback(async () => {
     setLoading(true);
@@ -62,20 +77,56 @@ export function ParticipantEventWorkspace({
   }, [loadEvent]);
 
   useEffect(() => {
+    if (!event || authLoading) return;
     let cancelled = false;
+    setFeedAccessLoading(true);
     void (async () => {
-      const rows = await listAnnouncementsForEvent(eventId);
-      const visible = filterAnnouncementsByRole(rows, role).filter(
-        (a) => !a.deletedAt,
-      );
-      if (!cancelled) setAnnouncements(visible);
+      try {
+        const can = await participantCanViewEventScopedAnnouncements(
+          eventId,
+          role,
+          isAuthenticated,
+        );
+        if (!cancelled) {
+          setCanViewEventFeed(can);
+        }
+      } finally {
+        if (!cancelled) {
+          setFeedAccessLoading(false);
+        }
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [eventId, role]);
+  }, [event, eventId, authLoading, isAuthenticated, role, locationPath]);
+
+  async function handleUnsubscribeFromEventUpdates() {
+    if (
+      !confirm("Stop receiving event-specific announcements for this event?")
+    ) {
+      return;
+    }
+    try {
+      await unsubscribeFromEventAnnouncements(eventId);
+      setCanViewEventFeed(false);
+      setFeedRefreshKey((k) => k + 1);
+    } catch {
+      // no-op; user can retry from subscribe page
+    }
+  }
 
   const basePath = `/participants/event/${eventId}`;
+
+  const sectionTabs = useMemo(() => participantSectionTabs(event), [event]);
+
+  useEffect(() => {
+    if (!event) return;
+    if (event.scoreboardVisibleToParticipants) return;
+    if (section === "scoreboard") {
+      onNavigate(basePath);
+    }
+  }, [event, section, basePath, onNavigate]);
 
   const sectionLabel = section === "dashboard" ? "Dashboard" : "Scoreboard";
 
@@ -142,7 +193,7 @@ export function ParticipantEventWorkspace({
             className="mx-auto mt-8 flex max-w-[min(100%,26rem)] flex-col gap-2.5 sm:flex-row sm:justify-center sm:gap-3"
             aria-label="Event sections"
           >
-            {TABS.map(({ id, label, suffix }) => {
+            {sectionTabs.map(({ id, label, suffix }) => {
               const active = section === id;
               const href = `${basePath}${suffix}`;
               return (
@@ -168,10 +219,7 @@ export function ParticipantEventWorkspace({
         {section === "dashboard" && (
           <div className="space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-sm font-medium text-slate-500">
-                Event details
-              </p>
-              <dl className="mt-4 flex flex-wrap gap-x-12 gap-y-4">
+              <dl className="flex flex-wrap gap-x-12 gap-y-4">
                 <div>
                   <dt className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                     Date
@@ -189,60 +237,57 @@ export function ParticipantEventWorkspace({
                   </dd>
                 </div>
               </dl>
-              <p className="mt-6 border-t border-slate-100 pt-6 text-sm text-slate-600">
-                <span className="font-medium text-slate-800">Registration</span> happens on the
-                Register page —{" "}
-                <button
-                  type="button"
-                  onClick={() =>
-                    canRegister
-                      ? onNavigate(registerTarget)
-                      : onNavigate(
-                          `/login?redirectTo=${encodeURIComponent(registerTarget)}`,
-                        )
-                  }
-                  className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-600"
-                >
-                  {canRegister ? "open the form" : "sign in to register"}
-                </button>
-                .
-              </p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-xl font-bold tracking-tight text-slate-900">
-                Your announcements
-              </h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Updates for this event. Some posts may require a signed-in
-                account.
-              </p>
-              <div className="mt-5 space-y-3">
-                {announcements.map((notice) => (
-                  <article
-                    key={notice.id}
-                    className="rounded-xl border border-slate-200 bg-slate-50/90 p-4"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-bold text-slate-900">
-                        {notice.title}
-                      </h3>
-                      <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                        {notice.audience}
-                      </span>
-                    </div>
-                    <div className="mt-2">
-                      <RichTextDisplay content={notice.body} />
-                    </div>
-                  </article>
-                ))}
-                {announcements.length === 0 && (
-                  <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 py-10 text-center text-sm text-slate-500">
-                    No announcements for this event yet.
+            {canViewEventFeed && role ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h1 className="text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
+                  Your Announcements
+                </h1>
+
+                <div className="mt-5">
+                  <ParticipantEventAnnouncementsList
+                    eventId={eventId}
+                    role={role}
+                    currentUserId={userId}
+                    isAdmin={role === "admin"}
+                    refreshKey={feedRefreshKey}
+                  />
+                </div>
+                {(role === "student" || role === "volunteer") && (
+                  <p className="mt-6 border-t border-slate-100 pt-4 text-center text-xs text-slate-500">
+                    <button
+                      type="button"
+                      onClick={() => void handleUnsubscribeFromEventUpdates()}
+                      className="underline decoration-slate-300 underline-offset-2 transition hover:text-slate-800"
+                    >
+                      Stop receiving announcements for this event
+                    </button>
                   </p>
                 )}
               </div>
-            </div>
+            ) : null}
+
+            {showSubscribeCta ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                <p className="text-sm font-semibold text-emerald-950">
+                  Get updates for this event
+                </p>
+                <p className="mt-1 text-sm text-emerald-900/90">
+                  Sign in with a <strong>student</strong> or{" "}
+                  <strong>volunteer</strong> account and opt in to see{" "}
+                  event-wide <strong>public</strong> posts and role-specific
+                  announcements here.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onNavigate(`${basePath}/subscribe`)}
+                  className="mt-3 rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-900"
+                >
+                  Receive announcements for this event
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
 

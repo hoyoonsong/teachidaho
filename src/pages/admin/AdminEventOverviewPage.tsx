@@ -44,7 +44,10 @@ type AdminEventOverviewPageProps = {
   onSaved: () => void;
 };
 
-export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewPageProps) {
+export function AdminEventOverviewPage({
+  eventId,
+  onSaved,
+}: AdminEventOverviewPageProps) {
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -55,7 +58,8 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
   const [draftName, setDraftName] = useState("");
   const [draftEventDate, setDraftEventDate] = useState("");
   const [draftLocation, setDraftLocation] = useState("");
-  const [draftRegistrationDeadline, setDraftRegistrationDeadline] = useState("");
+  const [draftRegistrationDeadline, setDraftRegistrationDeadline] =
+    useState("");
   const [draftStatus, setDraftStatus] = useState<EventStatus>("draft");
   const [draftNotes, setDraftNotes] = useState("");
 
@@ -66,7 +70,9 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
     setEvent(row);
     if (row) {
       setDraftName(row.name);
-      setDraftEventDate(row.eventDate.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? row.eventDate);
+      setDraftEventDate(
+        row.eventDate.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? row.eventDate,
+      );
       setDraftLocation(row.location === "TBD" ? "" : row.location);
       setDraftRegistrationDeadline(
         row.registrationDeadline.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ??
@@ -85,7 +91,9 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
   function openModal(key: Exclude<ModalKey, null>) {
     if (!event) return;
     setDraftName(event.name);
-    setDraftEventDate(event.eventDate.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? event.eventDate);
+    setDraftEventDate(
+      event.eventDate.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? event.eventDate,
+    );
     setDraftLocation(event.location === "TBD" ? "" : event.location);
     setDraftRegistrationDeadline(
       event.registrationDeadline.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ??
@@ -153,7 +161,9 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
   if (loading) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold text-slate-600">Loading overview…</p>
+        <p className="text-sm font-semibold text-slate-600">
+          Loading overview…
+        </p>
       </div>
     );
   }
@@ -203,18 +213,6 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
       )}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-              Overview
-            </p>
-            <p className="mt-2 text-sm leading-relaxed text-slate-600">
-              Key details for this event. Use the pencil button on each card to change one field at
-              a time — updates apply everywhere this event appears.
-            </p>
-          </div>
-        </div>
-
         <div className="relative mt-6 rounded-2xl border border-slate-200 bg-slate-50/50 p-5 pr-24">
           <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
             <PencilIconButton
@@ -255,7 +253,9 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
               Location
             </p>
-            <p className="mt-2 text-base font-bold text-slate-900">{event.location}</p>
+            <p className="mt-2 text-base font-bold text-slate-900">
+              {event.location}
+            </p>
           </div>
           <div className="relative rounded-2xl border border-slate-200 bg-white p-5 pt-12 shadow-sm">
             <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
@@ -281,7 +281,9 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
               Status
             </p>
-            <p className="mt-2 text-base font-bold capitalize text-slate-900">{event.status}</p>
+            <p className="mt-2 text-base font-bold capitalize text-slate-900">
+              {event.status}
+            </p>
           </div>
         </div>
 
@@ -296,7 +298,9 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
             Additional info for participants
           </p>
           {event.additionalInfo?.trim() ? (
-            <p className="mt-2 text-sm leading-relaxed text-slate-700">{event.additionalInfo}</p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-700">
+              {event.additionalInfo}
+            </p>
           ) : (
             <p className="mt-2 text-sm italic text-slate-500">
               No extra notes yet — visible on the Participants hub when added.
@@ -312,7 +316,11 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
         onClose={() => setModal(null)}
         footer={modalFooter("overview-form-name")}
       >
-        <form id="overview-form-name" className="space-y-4" onSubmit={handleNameSubmit}>
+        <form
+          id="overview-form-name"
+          className="space-y-4"
+          onSubmit={handleNameSubmit}
+        >
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Event name *
@@ -336,7 +344,11 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
         onClose={() => setModal(null)}
         footer={modalFooter("overview-form-date")}
       >
-        <form id="overview-form-date" className="space-y-4" onSubmit={handleEventDateSubmit}>
+        <form
+          id="overview-form-date"
+          className="space-y-4"
+          onSubmit={handleEventDateSubmit}
+        >
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Event date *
@@ -361,7 +373,11 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
         onClose={() => setModal(null)}
         footer={modalFooter("overview-form-loc")}
       >
-        <form id="overview-form-loc" className="space-y-4" onSubmit={handleLocationSubmit}>
+        <form
+          id="overview-form-loc"
+          className="space-y-4"
+          onSubmit={handleLocationSubmit}
+        >
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Location *
@@ -386,7 +402,11 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
         onClose={() => setModal(null)}
         footer={modalFooter("overview-form-deadline")}
       >
-        <form id="overview-form-deadline" className="space-y-4" onSubmit={handleDeadlineSubmit}>
+        <form
+          id="overview-form-deadline"
+          className="space-y-4"
+          onSubmit={handleDeadlineSubmit}
+        >
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Registration deadline *
@@ -416,7 +436,11 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
         onClose={() => setModal(null)}
         footer={modalFooter("overview-form-status")}
       >
-        <form id="overview-form-status" className="space-y-4" onSubmit={handleStatusSubmit}>
+        <form
+          id="overview-form-status"
+          className="space-y-4"
+          onSubmit={handleStatusSubmit}
+        >
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Status
@@ -446,7 +470,11 @@ export function AdminEventOverviewPage({ eventId, onSaved }: AdminEventOverviewP
         onClose={() => setModal(null)}
         footer={modalFooter("overview-form-notes")}
       >
-        <form id="overview-form-notes" className="space-y-4" onSubmit={handleNotesSubmit}>
+        <form
+          id="overview-form-notes"
+          className="space-y-4"
+          onSubmit={handleNotesSubmit}
+        >
           <label className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Additional info

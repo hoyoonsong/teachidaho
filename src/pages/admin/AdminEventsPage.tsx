@@ -127,6 +127,7 @@ export function AdminEventsPage({ onNavigate }: AdminEventsPageProps) {
     await createEvent({
       ...form,
       status: "draft",
+      scoreboardVisibleToParticipants: true,
     });
     setForm(initialForm);
     setCreateOpen(false);
@@ -150,9 +151,18 @@ export function AdminEventsPage({ onNavigate }: AdminEventsPageProps) {
   return (
     <div className="mx-auto max-w-[1280px] space-y-8 pb-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-black tracking-tight text-slate-900 md:text-3xl">
-          Events
-        </h1>
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+          <h1 className="text-2xl font-black tracking-tight text-slate-900 md:text-3xl">
+            Events
+          </h1>
+          <button
+            type="button"
+            onClick={() => onNavigate("/admin/users")}
+            className="text-sm font-semibold text-violet-700 underline decoration-violet-200 underline-offset-2 hover:decoration-violet-500"
+          >
+            Users &amp; roles
+          </button>
+        </div>
         <div className="flex flex-wrap gap-2 text-xs">
           <span className="rounded-md bg-white px-2.5 py-1 font-semibold text-slate-600 ring-1 ring-slate-200">
             {events.length} total
@@ -237,13 +247,6 @@ export function AdminEventsPage({ onNavigate }: AdminEventsPageProps) {
               List
             </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 sm:text-sm"
-          >
-            + New
-          </button>
         </div>
       </div>
 

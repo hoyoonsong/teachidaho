@@ -1,10 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { useAuth } from "../hooks/useAuth";
-import RichTextDisplay from "../components/richText/RichTextDisplay";
+import { useEffect, useState } from "react";
 import {
   listActiveEvents,
-  listAnnouncementsForRole,
-  type AnnouncementRecord,
   type EventRecord,
 } from "../lib/appDataStore";
 
@@ -52,26 +48,15 @@ function statusBadge(event: EventRecord) {
 }
 
 export function ParticipantsPage({ onNavigate }: ParticipantsPageProps) {
-  const { role } = useAuth();
   const [activeEvents, setActiveEvents] = useState<EventRecord[]>([]);
-  const [announcements, setAnnouncements] = useState<AnnouncementRecord[]>([]);
 
   useEffect(() => {
     async function loadData() {
-      const [events, notices] = await Promise.all([
-        listActiveEvents(),
-        listAnnouncementsForRole(role),
-      ]);
+      const events = await listActiveEvents();
       setActiveEvents(events);
-      setAnnouncements(notices);
     }
-    loadData();
-  }, [role]);
-
-  const visibleOrgAnnouncements = useMemo(
-    () => announcements.filter((a) => !a.deletedAt),
-    [announcements],
-  );
+    void loadData();
+  }, []);
 
   const gridClass =
     "grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6";
@@ -151,43 +136,6 @@ export function ParticipantsPage({ onNavigate }: ParticipantsPageProps) {
             {activeEvents.length === 0 && (
               <p className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-white py-14 text-center text-sm text-slate-500">
                 No active events right now.
-              </p>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-white py-10">
-        <div className="mx-auto w-[min(94vw,1280px)] px-4 sm:px-6 lg:px-10">
-          <h2 className="text-[clamp(2rem,2.8vw,2.4rem)] font-bold tracking-tight text-slate-900">
-            Announcements
-          </h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Organization-wide updates (not tied to a single event). Sign in to
-            see role-specific notices when available.
-          </p>
-          <div className="mt-4 space-y-3">
-            {visibleOrgAnnouncements.map((notice) => (
-              <article
-                key={notice.id}
-                className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-              >
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base font-bold text-slate-900">
-                    {notice.title}
-                  </h3>
-                  <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    {notice.audience}
-                  </span>
-                </div>
-                <div className="mt-2 text-sm">
-                  <RichTextDisplay content={notice.body} />
-                </div>
-              </article>
-            ))}
-            {visibleOrgAnnouncements.length === 0 && (
-              <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
-                No announcements yet.
               </p>
             )}
           </div>

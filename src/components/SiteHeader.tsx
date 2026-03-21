@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import logo from "../assets/teachidaho-logo.png";
 import type { UserRole } from "../types/auth";
+import { HeaderNotifications } from "./HeaderNotifications";
 
 type SiteHeaderProps = {
   currentPath: string;
@@ -10,6 +11,13 @@ type SiteHeaderProps = {
   onSignOut: () => Promise<void>;
 };
 
+const ADMIN_MENU: { href: string; label: string }[] = [
+  { href: "/admin", label: "Dashboard" },
+  { href: "/admin/events", label: "Events" },
+  { href: "/admin/users", label: "Users" },
+  { href: "/admin/announcements", label: "Site announcements" },
+];
+
 export function SiteHeader({
   currentPath,
   onNavigate,
@@ -18,21 +26,37 @@ export function SiteHeader({
   onSignOut,
 }: SiteHeaderProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+  const [mobileAdminOpen, setMobileAdminOpen] = useState(false);
+  const adminWrapRef = useRef<HTMLDivElement>(null);
+
   const loginRedirectTarget =
     currentPath === "/login"
       ? "/"
       : `/login?redirectTo=${encodeURIComponent(currentPath)}`;
-  const links = [
+
+  const links: { href: string; label: string }[] = [
     { href: "/", label: "Home" },
-    //{ href: "/gallery", label: "Gallery" },
     { href: "/info/econsummit", label: "Econ Summit" },
     { href: "/info/pitch-competition", label: "Pitch Competition" },
     { href: "/participants", label: "Participants" },
-    ...(role === "admin" ? [{ href: "/admin/events", label: "Admin" }] : []),
   ];
 
+  const adminPathActive = currentPath.startsWith("/admin");
+
+  useEffect(() => {
+    if (!adminMenuOpen) return;
+    function onDoc(e: MouseEvent) {
+      const el = adminWrapRef.current;
+      if (el && !el.contains(e.target as Node)) setAdminMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [adminMenuOpen]);
+
   function linkIsActive(href: string) {
-    if (href === "/participants") return currentPath.startsWith("/participants");
+    if (href === "/participants")
+      return currentPath.startsWith("/participants");
     return currentPath === href;
   }
 
@@ -50,7 +74,7 @@ export function SiteHeader({
             className="h-9 w-auto sm:h-16"
           />
         </button>
-        <nav className="hidden gap-5 text-sm font-medium text-slate-600 md:flex">
+        <nav className="hidden gap-5 text-sm font-medium text-slate-600 md:flex md:items-center">
           {links.map((link) => (
             <button
               key={link.href}
@@ -63,8 +87,53 @@ export function SiteHeader({
               {link.label}
             </button>
           ))}
+          {role === "admin" ? (
+            <div className="relative" ref={adminWrapRef}>
+              <button
+                type="button"
+                onClick={() => setAdminMenuOpen((o) => !o)}
+                aria-expanded={adminMenuOpen}
+                aria-haspopup="menu"
+                className={`inline-flex items-center gap-1 transition hover:text-slate-900 ${
+                  adminPathActive ? "text-slate-900" : ""
+                }`}
+              >
+                Admin
+                <span className="text-slate-400" aria-hidden>
+                  ▾
+                </span>
+              </button>
+              {adminMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full z-40 mt-2 min-w-[12rem] rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                >
+                  {ADMIN_MENU.map((item) => (
+                    <button
+                      key={item.href}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        onNavigate(item.href);
+                        setAdminMenuOpen(false);
+                      }}
+                      className="block w-full px-4 py-2.5 text-left text-sm text-slate-700 transition hover:bg-slate-50 hover:text-slate-900"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </nav>
         <div className="flex items-center gap-2">
+          <HeaderNotifications
+            onNavigate={(to) => {
+              onNavigate(to);
+              setMobileOpen(false);
+            }}
+          />
           {isAuthenticated ? (
             <button
               type="button"
@@ -110,6 +179,38 @@ export function SiteHeader({
                 {link.label}
               </button>
             ))}
+            {role === "admin" ? (
+              <div className="border-t border-slate-100 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setMobileAdminOpen((o) => !o)}
+                  className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-left transition hover:bg-slate-100 ${
+                    adminPathActive ? "bg-slate-100 text-slate-900" : ""
+                  }`}
+                >
+                  <span>Admin</span>
+                  <span className="text-slate-400">{mobileAdminOpen ? "▴" : "▾"}</span>
+                </button>
+                {mobileAdminOpen ? (
+                  <div className="ml-2 mt-1 flex flex-col gap-1 border-l-2 border-slate-200 pl-3">
+                    {ADMIN_MENU.map((item) => (
+                      <button
+                        key={item.href}
+                        type="button"
+                        onClick={() => {
+                          onNavigate(item.href);
+                          setMobileOpen(false);
+                          setMobileAdminOpen(false);
+                        }}
+                        className="rounded-md px-2 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {isAuthenticated ? (
               <button
                 type="button"

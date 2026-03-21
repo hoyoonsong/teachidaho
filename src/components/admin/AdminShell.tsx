@@ -15,12 +15,13 @@ type AdminShellProps = {
   activeSection?: AdminEventSection | null;
 };
 
-const EVENT_SECTIONS: { id: AdminEventSection; label: string; path: string }[] = [
-  { id: "overview", label: "Overview", path: "/overview" },
-  { id: "registrations", label: "Registrations", path: "/registrations" },
-  { id: "announcements", label: "Announcements", path: "/announcements" },
-  { id: "scoreboard", label: "Scoreboard", path: "/scoreboard" },
-];
+const EVENT_SECTIONS: { id: AdminEventSection; label: string; path: string }[] =
+  [
+    { id: "overview", label: "Overview", path: "/overview" },
+    { id: "registrations", label: "Registrations", path: "/registrations" },
+    { id: "announcements", label: "Announcements", path: "/announcements" },
+    { id: "scoreboard", label: "Scoreboard", path: "/scoreboard" },
+  ];
 
 const SECTION_TITLE: Record<AdminEventSection, string> = {
   overview: "Overview",

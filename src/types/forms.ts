@@ -34,7 +34,7 @@ export type DynamicFormDefinition = {
   title: string;
   description?: string;
   eventId?: string | null;
-  audience: "teachers" | "volunteers" | "public";
+  audience: "teachers" | "volunteers" | "public" | "students";
   fields: FormFieldDefinition[];
 };
 

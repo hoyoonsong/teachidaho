@@ -1,5 +1,6 @@
 import type { UserRole } from "../types/auth";
 import type { DynamicFormDefinition, FormSubmissionPayload } from "../types/forms";
+import { withNetworkRetries } from "./networkRetry";
 import { hasSupabaseCredentials, supabase } from "./supabase";
 
 export type EventStatus = "draft" | "published" | "active" | "closed" | "archived";
@@ -7,6 +8,7 @@ export type AnnouncementAudience =
   | "public"
   | "teachers"
   | "volunteers"
+  | "students"
   | "admins";
 export type SubmissionStatus = "pending" | "accepted" | "rejected";
 
@@ -25,6 +27,8 @@ export type EventRecord = {
   location: string;
   registrationDeadline: string;
   status: EventStatus;
+  /** Stored in custom_settings; default true when unset. */
+  scoreboardVisibleToParticipants: boolean;
   scoreboard?: ScoreboardGridState;
 };
 
@@ -59,6 +63,20 @@ export type AnnouncementRecord = {
   deletedAt: string | null;
 };
 
+/** Announcement with optional linked event name (for feeds / notifications). */
+export type AnnouncementFeedItem = AnnouncementRecord & {
+  eventName: string | null;
+};
+
+export type AdminProfileRecord = {
+  id: string;
+  email: string;
+  fullName: string | null;
+  role: UserRole;
+  schoolName: string | null;
+  createdAt: string;
+};
+
 export type FormDefinitionRecord = DynamicFormDefinition & {
   version: number;
   isActive: boolean;
@@ -79,6 +97,8 @@ export type RegistrationDetailRecord = FormSubmissionRecord & {
   schoolName: string;
   className: string | null;
   teacherNotes: string | null;
+  /** Auth user id — one registration per (event_id, teacher_id). */
+  teacherId: string;
 };
 
 export type EventMembershipRecord = {
@@ -101,6 +121,8 @@ export type ScoreRecord = {
 type EventCustomSettings = {
   dateLabel?: string;
   scoreboard?: ScoreboardGridState;
+  /** Default true when omitted — participants see Scoreboard tab + live board. */
+  scoreboardVisibleToParticipants?: boolean;
 };
 
 type EventRow = {
@@ -125,13 +147,17 @@ type AnnouncementRow = {
   deleted_at: string | null;
 };
 
+type AnnouncementRowWithEvent = AnnouncementRow & {
+  events?: { name: string } | null;
+};
+
 type FormDefinitionRow = {
   id: string;
   form_key: string;
   title: string;
   description: string | null;
   event_id: string | null;
-  audience: "teachers" | "volunteers" | "public";
+  audience: "teachers" | "volunteers" | "public" | "students";
   fields: DynamicFormDefinition["fields"];
   version: number;
   is_active: boolean;
@@ -209,6 +235,9 @@ export function parseScoreboardGridFromSettings(
 
 function toEventRecord(row: EventRow): EventRecord {
   const scoreboard = parseScoreboardGridFromSettings(row.custom_settings);
+  const cs = row.custom_settings ?? {};
+  const scoreboardVisibleToParticipants =
+    cs.scoreboardVisibleToParticipants === false ? false : true;
   return {
     id: row.id,
     name: row.name,
@@ -218,6 +247,7 @@ function toEventRecord(row: EventRow): EventRecord {
     location: row.location ?? "TBD",
     registrationDeadline: formatDateOnly(row.registration_deadline),
     status: row.status,
+    scoreboardVisibleToParticipants,
     ...(scoreboard ? { scoreboard } : {}),
   };
 }
@@ -231,6 +261,14 @@ function toAnnouncementRecord(row: AnnouncementRow): AnnouncementRecord {
     eventId: row.event_id,
     createdAt: row.created_at,
     deletedAt: row.deleted_at ?? null,
+  };
+}
+
+function toAnnouncementFeedItem(row: AnnouncementRowWithEvent): AnnouncementFeedItem {
+  const base = toAnnouncementRecord(row);
+  return {
+    ...base,
+    eventName: row.events?.name ?? null,
   };
 }
 
@@ -298,9 +336,11 @@ async function withSupabase<T>(query: () => Promise<T>, fallback: () => T | Prom
     return await fallback();
   }
   try {
-    return await query();
+    return await withNetworkRetries(() => query(), { retries: 4, delayMs: 350 });
   } catch (error) {
-    console.warn("Supabase query failed, returning fallback.", error);
+    if (import.meta.env.DEV) {
+      console.warn("Supabase query failed after retries, returning fallback.", error);
+    }
     return await fallback();
   }
 }
@@ -377,6 +417,7 @@ export async function createEvent(input: Omit<EventRecord, "id">) {
   }, async () => ({
     ...input,
     id: crypto.randomUUID(),
+    scoreboardVisibleToParticipants: true,
   }));
 }
 
@@ -497,6 +538,31 @@ export async function saveEventScoreboard(eventId: string, grid: ScoreboardGridS
   }, async () => undefined);
 }
 
+export async function saveScoreboardParticipantVisibility(
+  eventId: string,
+  visible: boolean,
+) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data: row, error: readError } = await supabase
+      .from("events")
+      .select("custom_settings")
+      .eq("id", eventId)
+      .single<{ custom_settings: EventCustomSettings | null }>();
+    if (readError) throw readError;
+    const prev = row?.custom_settings ?? {};
+    const nextSettings: EventCustomSettings = {
+      ...prev,
+      scoreboardVisibleToParticipants: visible,
+    };
+    const { error } = await supabase
+      .from("events")
+      .update({ custom_settings: nextSettings })
+      .eq("id", eventId);
+    if (error) throw error;
+  }, async () => undefined);
+}
+
 export async function listRegistrationsForEvent(
   eventId: string,
 ): Promise<RegistrationDetailRecord[]> {
@@ -523,6 +589,7 @@ export async function listRegistrationsForEvent(
       schoolName: row.school_name,
       className: row.class_name,
       teacherNotes: row.teacher_notes,
+      teacherId: row.teacher_id,
     }));
   }, async () => []);
 }
@@ -780,31 +847,55 @@ export async function updateRegistrationFields(
 }
 
 /** Filter announcements the current role is allowed to see (same rules as the global feed). */
-export function filterAnnouncementsByRole(
-  announcements: AnnouncementRecord[],
+export function filterAnnouncementsByRole<T extends AnnouncementRecord>(
+  announcements: T[],
   role: UserRole | null,
-): AnnouncementRecord[] {
+): T[] {
   const allowed = new Set<AnnouncementAudience>(["public"]);
   if (role === "admin") {
     allowed.add("admins");
     allowed.add("teachers");
     allowed.add("volunteers");
+    allowed.add("students");
   }
   if (role === "teacher") allowed.add("teachers");
   if (role === "volunteer") allowed.add("volunteers");
+  if (role === "student") allowed.add("students");
   return announcements.filter((a) => allowed.has(a.audience));
 }
 
-export async function listAnnouncementsForRole(role: UserRole | null) {
+export async function listAnnouncementsForRole(
+  _role: UserRole | null,
+): Promise<AnnouncementFeedItem[]> {
   return withSupabase(async () => {
     if (!supabase) throw new Error("No supabase");
     const { data, error } = await supabase
       .from("announcements")
-      .select("id,title,body,audience,event_id,created_at,deleted_at")
+      .select("id,title,body,audience,event_id,created_at,deleted_at, events(name)")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false })
-      .returns<AnnouncementRow[]>();
+      .returns<AnnouncementRowWithEvent[]>();
     if (error) throw error;
-    return filterAnnouncementsByRole((data ?? []).map(toAnnouncementRecord), role);
+    return (data ?? []).map(toAnnouncementFeedItem);
+  }, async () => []);
+}
+
+/** Recent visible announcements for header + /announcements (RLS scopes by role + event registration). */
+export async function listAnnouncementFeedForRole(
+  _role: UserRole | null,
+  limit = 50,
+): Promise<AnnouncementFeedItem[]> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data, error } = await supabase
+      .from("announcements")
+      .select("id,title,body,audience,event_id,created_at,deleted_at, events(name)")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(Math.min(limit, 100))
+      .returns<AnnouncementRowWithEvent[]>();
+    if (error) throw error;
+    return (data ?? []).map(toAnnouncementFeedItem);
   }, async () => []);
 }
 
@@ -907,6 +998,286 @@ export async function purgeExpiredSoftDeletedAnnouncements(): Promise<number> {
   }, async () => 0);
 }
 
+/** Admin: hard-delete one announcement (and comments via FK). */
+export async function permanentlyDeleteAnnouncement(announcementId: string) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { error } = await supabase
+      .from("announcements")
+      .delete()
+      .eq("id", announcementId);
+    if (error) throw error;
+  }, async () => undefined);
+}
+
+/** Admin: soft-deleted rows for one event (trash). */
+export async function listSoftDeletedAnnouncementsForEvent(
+  eventId: string,
+): Promise<AnnouncementRecord[]> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data, error } = await supabase
+      .from("announcements")
+      .select("id,title,body,audience,event_id,created_at,deleted_at")
+      .eq("event_id", eventId)
+      .not("deleted_at", "is", null)
+      .order("deleted_at", { ascending: false })
+      .returns<AnnouncementRow[]>();
+    if (error) throw error;
+    return (data ?? []).map(toAnnouncementRecord);
+  }, async () => []);
+}
+
+/** Admin: all soft-deleted announcements (site-wide trash). */
+export async function listSoftDeletedAnnouncementsAll(): Promise<
+  AnnouncementFeedItem[]
+> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data, error } = await supabase
+      .from("announcements")
+      .select("id,title,body,audience,event_id,created_at,deleted_at, events(name)")
+      .not("deleted_at", "is", null)
+      .order("deleted_at", { ascending: false })
+      .returns<AnnouncementRowWithEvent[]>();
+    if (error) throw error;
+    return (data ?? []).map(toAnnouncementFeedItem);
+  }, async () => []);
+}
+
+export type AnnouncementCommentVisibility = "public" | "private";
+
+export type AnnouncementCommentRecord = {
+  id: string;
+  announcementId: string;
+  parentId: string | null;
+  authorId: string;
+  authorEmail: string | null;
+  authorName: string | null;
+  /** Profile role at post time (for badges, e.g. admin). */
+  authorRole: string;
+  body: string;
+  visibility: AnnouncementCommentVisibility;
+  createdAt: string;
+};
+
+type AnnouncementCommentRow = {
+  id: string;
+  announcement_id: string;
+  parent_id: string | null;
+  author_id: string;
+  author_email: string;
+  author_display_name: string;
+  author_role: string;
+  body: string;
+  visibility: AnnouncementCommentVisibility;
+  created_at: string;
+};
+
+function toAnnouncementCommentRecord(
+  row: AnnouncementCommentRow,
+): AnnouncementCommentRecord {
+  return {
+    id: row.id,
+    announcementId: row.announcement_id,
+    parentId: row.parent_id,
+    authorId: row.author_id,
+    authorEmail: row.author_email?.trim() || null,
+    authorName: row.author_display_name?.trim() || null,
+    authorRole: row.author_role?.trim() || "teacher",
+    body: row.body,
+    visibility: row.visibility,
+    createdAt: row.created_at,
+  };
+}
+
+export async function listAnnouncementComments(
+  announcementId: string,
+): Promise<AnnouncementCommentRecord[]> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data, error } = await supabase
+      .from("announcement_comments")
+      .select(
+        "id, announcement_id, parent_id, author_id, author_email, author_display_name, author_role, body, visibility, created_at",
+      )
+      .eq("announcement_id", announcementId)
+      .order("created_at", { ascending: true })
+      .returns<AnnouncementCommentRow[]>();
+    if (error) throw error;
+    return (data ?? []).map(toAnnouncementCommentRecord);
+  }, async () => []);
+}
+
+export async function addAnnouncementComment(input: {
+  announcementId: string;
+  parentId: string | null;
+  body: string;
+  visibility: AnnouncementCommentVisibility;
+}): Promise<AnnouncementCommentRecord> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+    const uid = userData.user?.id;
+    if (!uid) throw new Error("Must be signed in to comment");
+
+    const { data, error } = await supabase
+      .from("announcement_comments")
+      .insert({
+        announcement_id: input.announcementId,
+        parent_id: input.parentId,
+        author_id: uid,
+        body: input.body.trim(),
+        visibility: input.visibility,
+      })
+      .select(
+        "id, announcement_id, parent_id, author_id, author_email, author_display_name, author_role, body, visibility, created_at",
+      )
+      .single<AnnouncementCommentRow>();
+    if (error) throw error;
+    return toAnnouncementCommentRecord(data);
+  }, async () => {
+    throw new Error("Comments require Supabase");
+  });
+}
+
+export async function deleteAnnouncementComment(commentId: string) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { error } = await supabase
+      .from("announcement_comments")
+      .delete()
+      .eq("id", commentId);
+    if (error) throw error;
+  }, async () => undefined);
+}
+
+/**
+ * Teacher has submitted or approved registration for this event (eligible for event-scoped
+ * teacher/public announcements in the participant workspace).
+ */
+export async function teacherHasSubmittedRegistrationForEvent(
+  eventId: string,
+): Promise<boolean> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth.user?.id;
+    if (!uid) return false;
+    const { data, error } = await supabase
+      .from("registrations")
+      .select("id")
+      .eq("event_id", eventId)
+      .eq("teacher_id", uid)
+      .in("status", ["submitted", "approved"])
+      .maybeSingle();
+    if (error) throw error;
+    return Boolean(data);
+  }, async () => false);
+}
+
+/**
+ * Whether this account should see the in-workspace announcement feed for this event:
+ * admins (preview), teachers with submitted/approved registration, or students/volunteers
+ * with an event announcement subscription.
+ */
+export async function participantCanViewEventScopedAnnouncements(
+  eventId: string,
+  role: UserRole | null,
+  isAuthenticated: boolean,
+): Promise<boolean> {
+  if (!isAuthenticated || !role) return false;
+  if (role === "admin") return true;
+  if (role === "teacher") {
+    return teacherHasSubmittedRegistrationForEvent(eventId);
+  }
+  if (role === "student" || role === "volunteer") {
+    return getEventAnnouncementSubscription(eventId);
+  }
+  return false;
+}
+
+/** Announcements tied to one event, after RLS + role-based audience filter. */
+export async function listAnnouncementFeedForEvent(
+  eventId: string,
+  role: UserRole | null,
+  limit = 40,
+): Promise<AnnouncementFeedItem[]> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data, error } = await supabase
+      .from("announcements")
+      .select("id,title,body,audience,event_id,created_at,deleted_at, events(name)")
+      .eq("event_id", eventId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(Math.min(limit, 80))
+      .returns<AnnouncementRowWithEvent[]>();
+    if (error) throw error;
+    const items = (data ?? []).map(toAnnouncementFeedItem);
+    return filterAnnouncementsByRole(items, role);
+  }, async () => []);
+}
+
+/** Whether the current user is subscribed to event-scoped student/volunteer announcements. */
+export async function getEventAnnouncementSubscription(
+  eventId: string,
+): Promise<boolean> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+    const uid = userData.user?.id;
+    if (!uid) return false;
+    const { data, error } = await supabase
+      .from("event_announcement_subscriptions")
+      .select("user_id")
+      .eq("event_id", eventId)
+      .eq("user_id", uid)
+      .maybeSingle();
+    if (error) throw error;
+    return Boolean(data);
+  }, async () => false);
+}
+
+export async function subscribeToEventAnnouncements(eventId: string) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+    const uid = userData.user?.id;
+    if (!uid) throw new Error("Must be signed in");
+    const { error } = await supabase
+      .from("event_announcement_subscriptions")
+      .upsert(
+        { user_id: uid, event_id: eventId },
+        { onConflict: "user_id,event_id" },
+      );
+    if (error) throw error;
+  }, async () => {
+    throw new Error("Subscriptions require Supabase");
+  });
+}
+
+export async function unsubscribeFromEventAnnouncements(eventId: string) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+    const uid = userData.user?.id;
+    if (!uid) throw new Error("Must be signed in");
+    const { error } = await supabase
+      .from("event_announcement_subscriptions")
+      .delete()
+      .eq("event_id", eventId)
+      .eq("user_id", uid);
+    if (error) throw error;
+  }, async () => {
+    throw new Error("Subscriptions require Supabase");
+  });
+}
+
 export async function listFormDefinitions() {
   return withSupabase(async () => {
     if (!supabase) throw new Error("No supabase");
@@ -976,8 +1347,13 @@ export async function submitForm(
     const customFields = input.payload;
     const schoolName = String(customFields.schoolName ?? "Unknown School");
     const className = null;
-    const teacherNotes =
-      customFields.notes !== undefined ? String(customFields.notes) : null;
+    /** Teacher form notes live in custom_fields only; teacher_notes column is admin-internal. */
+    const { data: existingReg } = await supabase
+      .from("registrations")
+      .select("teacher_notes")
+      .eq("event_id", input.eventId)
+      .eq("teacher_id", userId)
+      .maybeSingle<{ teacher_notes: string | null }>();
 
     const { data, error } = await supabase
       .from("registrations")
@@ -988,7 +1364,7 @@ export async function submitForm(
           status: "submitted",
           school_name: schoolName,
           class_name: className,
-          teacher_notes: teacherNotes,
+          teacher_notes: existingReg?.teacher_notes ?? null,
           custom_fields: customFields,
           submitted_at: new Date().toISOString(),
         },
@@ -1096,6 +1472,51 @@ export async function listScores() {
       createdAt: row.created_at,
     }));
   }, async () => []);
+}
+
+type ProfileAdminRow = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: UserRole;
+  school_name: string | null;
+  created_at: string;
+};
+
+function toAdminProfileRecord(row: ProfileAdminRow): AdminProfileRecord {
+  return {
+    id: row.id,
+    email: row.email,
+    fullName: row.full_name,
+    role: row.role,
+    schoolName: row.school_name,
+    createdAt: row.created_at,
+  };
+}
+
+/** All profiles (admin only via RLS). */
+export async function listAdminProfiles(): Promise<AdminProfileRecord[]> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id,email,full_name,role,school_name,created_at")
+      .order("created_at", { ascending: false })
+      .returns<ProfileAdminRow[]>();
+    if (error) throw error;
+    return (data ?? []).map(toAdminProfileRecord);
+  }, async () => []);
+}
+
+export async function adminSetUserRole(userId: string, role: UserRole) {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { error } = await supabase
+      .from("profiles")
+      .update({ role })
+      .eq("id", userId);
+    if (error) throw error;
+  }, async () => undefined);
 }
 
 export async function addScore(input: Omit<ScoreRecord, "id" | "createdAt">) {
