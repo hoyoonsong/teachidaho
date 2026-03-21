@@ -8,7 +8,10 @@ import {
   type ScoreboardGridState,
 } from "../lib/appDataStore";
 import { hasSupabaseCredentials, supabase } from "../lib/supabase";
-import { scoreboardRowTotal, sortTeamIdsByScoreThenName } from "../lib/scoreboardUtils";
+import {
+  scoreboardRowTotal,
+  sortTeamIdsByScoreThenName,
+} from "../lib/scoreboardUtils";
 
 type ParticipantEventScoreboardPageProps = {
   eventId: string;
@@ -66,7 +69,9 @@ export function ParticipantEventScoreboardPage({
             | undefined;
           const vis = cs?.scoreboardVisibleToParticipants !== false;
           const nextGrid = parseScoreboardGridFromSettings(
-            row.custom_settings as Parameters<typeof parseScoreboardGridFromSettings>[0],
+            row.custom_settings as Parameters<
+              typeof parseScoreboardGridFromSettings
+            >[0],
           );
           setEvent((prev) => {
             if (!prev) return prev;
@@ -106,7 +111,9 @@ export function ParticipantEventScoreboardPage({
   if (loading) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold text-slate-600">Loading scoreboard…</p>
+        <p className="text-sm font-semibold text-slate-600">
+          Loading scoreboard…
+        </p>
       </div>
     );
   }
@@ -122,10 +129,12 @@ export function ParticipantEventScoreboardPage({
   if (!event.scoreboardVisibleToParticipants) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
-        <p className="font-semibold text-slate-900">Scoreboard not published for participants</p>
+        <p className="font-semibold text-slate-900">
+          Scoreboard not published for participants
+        </p>
         <p className="mt-2 text-slate-600">
-          Event staff have turned off the live scoreboard for this event. Check back later or
-          contact the organizer if you have questions.
+          Event staff have turned off the live scoreboard for this event. Check
+          back later or contact the organizer if you have questions.
         </p>
       </div>
     );
@@ -175,7 +184,9 @@ export function ParticipantEventScoreboardPage({
                     {index + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="font-bold text-slate-900">{team.teamName}</div>
+                    <div className="font-bold text-slate-900">
+                      {team.teamName}
+                    </div>
                     <div className="text-xs text-slate-500">
                       {open ? "Hide score breakdown" : "Show score breakdown"}
                     </div>
@@ -184,7 +195,9 @@ export function ParticipantEventScoreboardPage({
                     <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
                       Total
                     </div>
-                    <div className="text-xl font-black tabular-nums text-slate-900">{total}</div>
+                    <div className="text-xl font-black tabular-nums text-slate-900">
+                      {total}
+                    </div>
                   </div>
                   <span
                     className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
@@ -200,7 +213,9 @@ export function ParticipantEventScoreboardPage({
                         key={col.id}
                         className="flex items-center justify-between gap-3 text-sm"
                       >
-                        <span className="min-w-0 text-slate-600">{col.label}</span>
+                        <span className="min-w-0 text-slate-600">
+                          {col.label}
+                        </span>
                         <span className="shrink-0 font-semibold tabular-nums text-slate-900">
                           {grid.cells[team.id]?.[col.id]?.trim() || "—"}
                         </span>

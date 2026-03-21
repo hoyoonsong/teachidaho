@@ -406,8 +406,8 @@ export function AnnouncementThread({
                             public
                           </span>
                         )}{" "}
-                        comment; your reply defaults the same way. Change below if
-                        needed.
+                        comment; your reply defaults the same way. Change below
+                        if needed.
                       </p>
                       <button
                         type="button"
@@ -478,7 +478,9 @@ export function AnnouncementThread({
               )}
             </div>
           ) : (
-            <p className="text-xs text-slate-500">Sign in to join the discussion.</p>
+            <p className="text-xs text-slate-500">
+              Sign in to join the discussion.
+            </p>
           )}
         </div>
       ) : null}

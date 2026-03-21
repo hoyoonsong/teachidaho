@@ -347,9 +347,7 @@ export function AdminEventScoreboardPage({
             : "max-h-[min(78vh,calc(100dvh-11rem))] overflow-auto";
 
           const spreadsheetTable = (
-            <div
-              className={`${tableScrollClass} w-full bg-slate-50/90`}
-            >
+            <div className={`${tableScrollClass} w-full bg-slate-50/90`}>
               <table className="w-full min-w-[720px] border-collapse text-sm bg-white">
                 <thead className="sticky top-0 z-20 shadow-sm">
                   <tr className="border-b border-slate-200 bg-slate-50 text-left">
@@ -406,7 +404,9 @@ export function AdminEventScoreboardPage({
                           {team.teamName}
                         </div>
                         <div className="mt-0.5 text-[9px] leading-tight text-slate-400">
-                          <span className="line-clamp-2">{team.schoolName}</span>
+                          <span className="line-clamp-2">
+                            {team.schoolName}
+                          </span>
                           <span className="text-slate-300"> · </span>
                           <span className="break-all">{team.teacherEmail}</span>
                         </div>
@@ -437,8 +437,8 @@ export function AdminEventScoreboardPage({
                       colSpan={Math.max(grid.columns.length + 2, 2)}
                       className="border-t-2 border-slate-200 px-3 py-2.5 text-center text-[11px] font-medium leading-snug text-slate-500"
                     >
-                      End of scoreboard grid · Columns are added above; scores save when
-                      you leave a cell.
+                      End of scoreboard grid · Columns are added above; scores
+                      save when you leave a cell.
                     </td>
                   </tr>
                 </tfoot>

@@ -184,9 +184,9 @@ export function ParticipantsRegisterPage({
                 Registration
               </h1>
               <p className="mt-3 max-w-4xl text-sm leading-relaxed text-slate-600">
-                Choose an event, add your teams, then submit the form below. Your
-                school details and consent are saved with the form. After you
-                submit once, everything stays filled in—use{" "}
+                Choose an event, add your teams, then submit the form below.
+                Your school details and consent are saved with the form. After
+                you submit once, everything stays filled in—use{" "}
                 <strong>Edit registration</strong> to change details or add
                 teams. Browse event details and announcements from the{" "}
                 {onNavigate ? (
@@ -238,13 +238,15 @@ export function ParticipantsRegisterPage({
               </label>
 
               {registrationError && (
-                <p className="mt-3 text-sm text-amber-800">{registrationError}</p>
+                <p className="mt-3 text-sm text-amber-800">
+                  {registrationError}
+                </p>
               )}
 
               {!selectedEventId ? (
                 <p className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-                  Choose an event above to add teams and complete the registration
-                  form.
+                  Choose an event above to add teams and complete the
+                  registration form.
                 </p>
               ) : (
                 <>
@@ -287,9 +289,10 @@ export function ParticipantsRegisterPage({
                                 </span>
                               ) : null}
                               School details, teams, and notes are on file and
-                              locked. Admins can review this in the registrations
-                              queue. Choose <strong>Edit registration</strong>{" "}
-                              to update the form or manage teams.
+                              locked. Admins can review this in the
+                              registrations queue. Choose{" "}
+                              <strong>Edit registration</strong> to update the
+                              form or manage teams.
                             </p>
                           )}
                         </div>
@@ -359,9 +362,7 @@ export function ParticipantsRegisterPage({
                             prefillIfEmpty={teacherPrefillIfEmpty}
                             disabled={formAndTeamsLocked}
                             submitLabel={
-                              isFiled
-                                ? "Save updates"
-                                : "Submit registration"
+                              isFiled ? "Save updates" : "Submit registration"
                             }
                             onSubmit={handleSubmit}
                           />
