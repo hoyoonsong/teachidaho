@@ -5,6 +5,12 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const hasSupabaseCredentials = Boolean(supabaseUrl && supabaseAnonKey);
 
+if (import.meta.env.DEV && !hasSupabaseCredentials) {
+  console.warn(
+    "[TeachIdaho] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY — copy .env.example to .env.local and restart the dev server. Supabase calls will fail with “No API key found”.",
+  );
+}
+
 declare global {
   interface Window {
     __teachIdahoSupabaseClient?: SupabaseClient;

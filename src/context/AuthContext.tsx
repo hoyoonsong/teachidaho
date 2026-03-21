@@ -33,7 +33,10 @@ type AuthContextValue = {
   displayName: string | null;
   hasSupabaseCredentials: boolean;
   refreshRole: () => Promise<void>;
-  signInWithPassword: (email: string, password: string) => Promise<string | null>;
+  signInWithPassword: (
+    email: string,
+    password: string,
+  ) => Promise<string | null>;
   signUpWithPassword: (
     email: string,
     password: string,
@@ -101,7 +104,9 @@ async function fetchProfileBasics(
 }
 
 function displayNameFromSession(session: Session | null): string | null {
-  const meta = session?.user.user_metadata as Record<string, unknown> | undefined;
+  const meta = session?.user.user_metadata as
+    | Record<string, unknown>
+    | undefined;
   const fromFull =
     typeof meta?.full_name === "string" ? meta.full_name.trim() : "";
   const fromName = typeof meta?.name === "string" ? meta.name.trim() : "";
@@ -115,37 +120,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<UserRole | null>(null);
   const [profileFullName, setProfileFullName] = useState<string | null>(null);
 
-  const resolveRoleFromSession = useCallback(async (nextSession: Session | null) => {
-    if (!nextSession?.user) {
-      setRole(null);
-      setProfileFullName(null);
-      return;
-    }
-    const userId = nextSession.user.id;
-    const cachedRole = getCachedRole(userId);
-    if (cachedRole) {
-      setRole(cachedRole);
-    } else {
-      setRole(null);
-    }
+  const resolveRoleFromSession = useCallback(
+    async (nextSession: Session | null) => {
+      if (!nextSession?.user) {
+        setRole(null);
+        setProfileFullName(null);
+        return;
+      }
+      const userId = nextSession.user.id;
+      const cachedRole = getCachedRole(userId);
+      if (cachedRole) {
+        setRole(cachedRole);
+      } else {
+        setRole(null);
+      }
 
-    const { role: liveRole, fullName } = await fetchProfileBasics(userId);
-    if (fullName) {
-      setProfileFullName(fullName);
-    } else {
-      setProfileFullName(null);
-    }
+      const { role: liveRole, fullName } = await fetchProfileBasics(userId);
+      if (fullName) {
+        setProfileFullName(fullName);
+      } else {
+        setProfileFullName(null);
+      }
 
-    if (liveRole) {
-      setRole(liveRole);
-      setCachedRole(userId, liveRole);
-      return;
-    }
+      if (liveRole) {
+        setRole(liveRole);
+        setCachedRole(userId, liveRole);
+        return;
+      }
 
-    if (!cachedRole) {
-      setRole(null);
-    }
-  }, []);
+      if (!cachedRole) {
+        setRole(null);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const client = supabase;
@@ -261,7 +269,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return "Supabase auth is not configured yet.";
       }
 
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
       if (error) return error.message;
       const {
         data: { session: nextSession },
@@ -329,7 +340,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await supabase.auth.signOut({ scope: "local" });
       } catch (error) {
-        console.warn("Supabase sign out failed, clearing local auth state.", error);
+        console.warn(
+          "Supabase sign out failed, clearing local auth state.",
+          error,
+        );
       }
     }
     if (currentUserId) {

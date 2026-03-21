@@ -8,6 +8,7 @@ import { AdminEventAnnouncementsPage } from "./AdminEventAnnouncementsPage";
 import { AdminEventOverviewPage } from "./AdminEventOverviewPage";
 import { AdminEventRegistrationsPage } from "./AdminEventRegistrationsPage";
 import { AdminEventScoreboardPage } from "./AdminEventScoreboardPage";
+import { AdminEventVolunteersPage } from "./AdminEventVolunteersPage";
 
 type AdminEventWorkspaceProps = {
   eventId: string;
@@ -60,6 +61,10 @@ export function AdminEventWorkspace({
     page = <AdminEventRegistrationsPage eventId={eventId} />;
   } else if (section === "announcements") {
     page = <AdminEventAnnouncementsPage eventId={eventId} />;
+  } else if (section === "volunteers") {
+    page = (
+      <AdminEventVolunteersPage eventId={eventId} eventName={event.name} />
+    );
   } else {
     page = <AdminEventScoreboardPage eventId={eventId} />;
   }

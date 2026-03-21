@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DynamicForm } from "../components/forms/DynamicForm";
 import { RegistrationTeamsEditor } from "../components/registration/RegistrationTeamsEditor";
 import { useAuth } from "../hooks/useAuth";
 import {
   ensureTeacherRegistrationDraft,
   getRegistrationFormForEvent,
+  getTeacherRegistrationSnapshot,
   listActiveEvents,
   submitForm,
   type EventRecord,
   type FormDefinitionRecord,
+  type TeacherRegistrationSnapshot,
 } from "../lib/appDataStore";
 import type { FormSubmissionPayload } from "../types/forms";
 
@@ -28,9 +30,19 @@ export function ParticipantsRegisterPage({
   );
   const [formDefinition, setFormDefinition] =
     useState<FormDefinitionRecord | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  /** True briefly after a successful save so the status banner can say “saved” until they edit again. */
+  const [recentlySaved, setRecentlySaved] = useState(false);
   const [registrationId, setRegistrationId] = useState<string | null>(null);
-  const [registrationError, setRegistrationError] = useState<string | null>(null);
+  const [registrationError, setRegistrationError] = useState<string | null>(
+    null,
+  );
+  const [regSnapshot, setRegSnapshot] =
+    useState<TeacherRegistrationSnapshot | null>(null);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  /** Bumped with registration snapshot refresh (Done editing / after save) so teams reload in the same beat—no extra polling. */
+  const [teamsResyncToken, setTeamsResyncToken] = useState(0);
+  /** When registration is submitted/approved, false = view-only until user clicks Edit. */
+  const [editingRegistration, setEditingRegistration] = useState(true);
 
   const teacherPrefillIfEmpty = useMemo(
     () => ({
@@ -38,6 +50,28 @@ export function ParticipantsRegisterPage({
       teacherName: displayName?.trim() || undefined,
     }),
     [email, displayName],
+  );
+
+  const loadRegistrationSnapshot = useCallback(
+    async (eventId: string, options?: { resyncTeams?: boolean }) => {
+      setSnapshotLoading(true);
+      try {
+        const snap = await getTeacherRegistrationSnapshot(eventId);
+        setRegSnapshot(snap);
+        const submitted =
+          snap &&
+          (snap.status === "submitted" ||
+            snap.status === "approved" ||
+            snap.status === "rejected");
+        setEditingRegistration(!submitted);
+        if (options?.resyncTeams) {
+          setTeamsResyncToken((t) => t + 1);
+        }
+      } finally {
+        setSnapshotLoading(false);
+      }
+    },
+    [],
   );
 
   useEffect(() => {
@@ -67,13 +101,42 @@ export function ParticipantsRegisterPage({
       const id = await ensureTeacherRegistrationDraft(selectedEventId);
       if (!cancelled) {
         if (id) setRegistrationId(id);
-        else setRegistrationError("Could not start a registration draft. Check your connection.");
+        else
+          setRegistrationError(
+            "Could not start a registration draft. Check your connection.",
+          );
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [hasTeacherAccess, selectedEventId]);
+
+  useEffect(() => {
+    if (!hasTeacherAccess || !selectedEventId || !registrationId) {
+      setRegSnapshot(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      if (!cancelled) await loadRegistrationSnapshot(selectedEventId);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    hasTeacherAccess,
+    selectedEventId,
+    registrationId,
+    loadRegistrationSnapshot,
+  ]);
+
+  const isFiled =
+    regSnapshot &&
+    (regSnapshot.status === "submitted" ||
+      regSnapshot.status === "approved" ||
+      regSnapshot.status === "rejected");
+  const formAndTeamsLocked = Boolean(isFiled && !editingRegistration);
 
   async function handleSubmit(values: FormSubmissionPayload) {
     if (!formDefinition || !selectedEventId) return;
@@ -83,14 +146,12 @@ export function ParticipantsRegisterPage({
       submittedBy: email ?? "unknown@teachidaho.local",
       payload: values,
     });
-    setSuccessMessage(
-      "Registration submitted. Admin can now review it in the registrations queue. You can still add or edit teams below.",
-    );
-    if (selectedEventId) {
-      const id = await ensureTeacherRegistrationDraft(selectedEventId);
-      if (id) setRegistrationId(id);
-    }
+    setRecentlySaved(true);
+    await loadRegistrationSnapshot(selectedEventId, { resyncTeams: true });
+    setEditingRegistration(false);
   }
+
+  const formInitialValues = regSnapshot?.payload;
 
   return (
     <main>
@@ -123,8 +184,11 @@ export function ParticipantsRegisterPage({
                 Registration
               </h1>
               <p className="mt-3 max-w-4xl text-sm leading-relaxed text-slate-600">
-                Choose an event, add your teams, then submit the form below. Your school details and
-                consent are saved with the form. Browse event details and announcements from the{" "}
+                Choose an event, add your teams, then submit the form below. Your
+                school details and consent are saved with the form. After you
+                submit once, everything stays filled in—use{" "}
+                <strong>Edit registration</strong> to change details or add
+                teams. Browse event details and announcements from the{" "}
                 {onNavigate ? (
                   <button
                     type="button"
@@ -150,11 +214,12 @@ export function ParticipantsRegisterPage({
                   onChange={(event) => {
                     const nextId = event.target.value;
                     setSelectedEventId(nextId);
-                    setSuccessMessage(null);
+                    setRecentlySaved(false);
                     if (!nextId) {
                       setFormDefinition(null);
                       setRegistrationId(null);
                       setRegistrationError(null);
+                      setRegSnapshot(null);
                     }
                   }}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
@@ -178,37 +243,130 @@ export function ParticipantsRegisterPage({
 
               {!selectedEventId ? (
                 <p className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-                  Choose an event above to add teams and complete the registration form.
+                  Choose an event above to add teams and complete the registration
+                  form.
                 </p>
               ) : (
                 <>
+                  {isFiled ? (
+                    <div
+                      className={`mt-6 rounded-xl border-2 px-4 py-4 ${
+                        editingRegistration
+                          ? "border-slate-200 bg-slate-50"
+                          : "border-emerald-200 bg-emerald-50/90"
+                      }`}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 space-y-2">
+                          <p
+                            className={`text-sm font-bold ${
+                              editingRegistration
+                                ? "text-slate-900"
+                                : "text-emerald-950"
+                            }`}
+                          >
+                            {editingRegistration
+                              ? "Editing registration"
+                              : recentlySaved
+                                ? "Registration saved"
+                                : "Registration on file"}
+                          </p>
+                          {editingRegistration ? (
+                            <p className="text-xs leading-relaxed text-slate-600">
+                              School details, teams, and notes below can be
+                              changed. Use <strong>Save updates</strong> on the
+                              school form when you&apos;re finished, or{" "}
+                              <strong>Done editing</strong> to lock everything
+                              again without saving new form changes.
+                            </p>
+                          ) : (
+                            <p className="text-xs leading-relaxed text-emerald-950/90">
+                              {recentlySaved ? (
+                                <span className="font-semibold text-emerald-900">
+                                  Your latest changes are saved.{" "}
+                                </span>
+                              ) : null}
+                              School details, teams, and notes are on file and
+                              locked. Admins can review this in the registrations
+                              queue. Choose <strong>Edit registration</strong>{" "}
+                              to update the form or manage teams.
+                            </p>
+                          )}
+                        </div>
+                        {editingRegistration ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingRegistration(false);
+                              void loadRegistrationSnapshot(selectedEventId, {
+                                resyncTeams: true,
+                              });
+                            }}
+                            className="shrink-0 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-800 shadow-sm transition hover:bg-slate-100"
+                          >
+                            Done editing
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingRegistration(true);
+                              setRecentlySaved(false);
+                            }}
+                            className="shrink-0 rounded-xl bg-emerald-800 px-5 py-2.5 text-sm font-bold text-white shadow-sm ring-2 ring-emerald-900/10 transition hover:bg-emerald-900"
+                          >
+                            Edit registration
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+
                   <div className="mt-6">
                     <RegistrationTeamsEditor
                       registrationId={registrationId}
                       title="Your teams"
+                      readOnly={formAndTeamsLocked}
+                      hideReadOnlyNotice={formAndTeamsLocked}
+                      resyncToken={teamsResyncToken}
                     />
                   </div>
-
-                  {successMessage && (
-                    <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                      {successMessage}
-                    </p>
-                  )}
                   {formDefinition && (
                     <div className="mt-6 border-t border-slate-100 pt-6">
-                      <h2 className="text-lg font-bold text-slate-900">
-                        School &amp; teacher details
-                      </h2>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Notes and consent follow your contact information.
-                      </p>
-                      <DynamicForm
-                        key={`${formDefinition.id}-${selectedEventId}`}
-                        definition={formDefinition}
-                        prefillIfEmpty={teacherPrefillIfEmpty}
-                        submitLabel="Submit registration"
-                        onSubmit={handleSubmit}
-                      />
+                      <div>
+                        <h2 className="text-lg font-bold text-slate-900">
+                          School &amp; teacher details
+                        </h2>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Notes and consent follow your contact information.
+                        </p>
+                      </div>
+                      {snapshotLoading ? (
+                        <p className="mt-4 text-sm text-slate-500">
+                          Loading your saved answers…
+                        </p>
+                      ) : (
+                        <div
+                          className={
+                            formAndTeamsLocked
+                              ? "mt-4 rounded-lg bg-slate-50/80 p-3 ring-1 ring-slate-200/80"
+                              : "mt-4"
+                          }
+                        >
+                          <DynamicForm
+                            definition={formDefinition}
+                            initialValues={formInitialValues}
+                            prefillIfEmpty={teacherPrefillIfEmpty}
+                            disabled={formAndTeamsLocked}
+                            submitLabel={
+                              isFiled
+                                ? "Save updates"
+                                : "Submit registration"
+                            }
+                            onSubmit={handleSubmit}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                 </>

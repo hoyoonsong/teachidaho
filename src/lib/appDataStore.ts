@@ -726,6 +726,49 @@ export async function ensureTeacherRegistrationDraft(eventId: string): Promise<s
   }, async () => null);
 }
 
+/** Teacher's registration row for one event (form answers in custom_fields). */
+export type TeacherRegistrationSnapshot = {
+  id: string;
+  status: "draft" | "submitted" | "approved" | "rejected";
+  payload: FormSubmissionPayload;
+};
+
+export async function getTeacherRegistrationSnapshot(
+  eventId: string,
+): Promise<TeacherRegistrationSnapshot | null> {
+  return withSupabase(async () => {
+    if (!supabase) throw new Error("No supabase");
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData.user?.id;
+    if (!userId || !eventId) return null;
+
+    const { data, error } = await supabase
+      .from("registrations")
+      .select("id, status, school_name, custom_fields")
+      .eq("event_id", eventId)
+      .eq("teacher_id", userId)
+      .maybeSingle<{
+        id: string;
+        status: TeacherRegistrationSnapshot["status"];
+        school_name: string;
+        custom_fields: FormSubmissionPayload | null;
+      }>();
+    if (error) throw error;
+    if (!data) return null;
+    const custom = (data.custom_fields as FormSubmissionPayload) ?? {};
+    /** Column is source of truth for display (admins edit school_name; submitForm keeps it in sync on save). */
+    const payload: FormSubmissionPayload = {
+      ...custom,
+      schoolName: data.school_name ?? custom.schoolName ?? "",
+    };
+    return {
+      id: data.id,
+      status: data.status,
+      payload,
+    };
+  }, async () => null);
+}
+
 export async function listTeamsForRegistration(
   registrationId: string,
 ): Promise<RegistrationTeamRecord[]> {
@@ -1114,20 +1157,21 @@ export async function addAnnouncementComment(input: {
   parentId: string | null;
   body: string;
   visibility: AnnouncementCommentVisibility;
+  /** Must match the signed-in user (RLS enforces author_id = auth.uid()). */
+  authorId: string;
 }): Promise<AnnouncementCommentRecord> {
   return withSupabase(async () => {
     if (!supabase) throw new Error("No supabase");
-    const { data: userData, error: userErr } = await supabase.auth.getUser();
-    if (userErr) throw userErr;
-    const uid = userData.user?.id;
-    if (!uid) throw new Error("Must be signed in to comment");
+    if (!input.authorId.trim()) {
+      throw new Error("Must be signed in to comment");
+    }
 
     const { data, error } = await supabase
       .from("announcement_comments")
       .insert({
         announcement_id: input.announcementId,
         parent_id: input.parentId,
-        author_id: uid,
+        author_id: input.authorId,
         body: input.body.trim(),
         visibility: input.visibility,
       })
@@ -1220,6 +1264,28 @@ export async function listAnnouncementFeedForEvent(
   }, async () => []);
 }
 
+/** localStorage: user chose “stop receiving” for this event — blocks client auto opt-in until they subscribe again. */
+function eventAnnouncementOptOutStorageKey(eventId: string) {
+  return `teachidaho:event_ann_opt_out:${eventId}`;
+}
+
+export function isEventAnnouncementLocallyDeclined(eventId: string): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(eventAnnouncementOptOutStorageKey(eventId)) === "1";
+}
+
+function markEventAnnouncementLocallyDeclined(eventId: string) {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(eventAnnouncementOptOutStorageKey(eventId), "1");
+  }
+}
+
+function clearEventAnnouncementLocallyDeclined(eventId: string) {
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem(eventAnnouncementOptOutStorageKey(eventId));
+  }
+}
+
 /** Whether the current user is subscribed to event-scoped student/volunteer announcements. */
 export async function getEventAnnouncementSubscription(
   eventId: string,
@@ -1255,6 +1321,7 @@ export async function subscribeToEventAnnouncements(eventId: string) {
         { onConflict: "user_id,event_id" },
       );
     if (error) throw error;
+    clearEventAnnouncementLocallyDeclined(eventId);
   }, async () => {
     throw new Error("Subscriptions require Supabase");
   });
@@ -1273,6 +1340,7 @@ export async function unsubscribeFromEventAnnouncements(eventId: string) {
       .eq("event_id", eventId)
       .eq("user_id", uid);
     if (error) throw error;
+    markEventAnnouncementLocallyDeclined(eventId);
   }, async () => {
     throw new Error("Subscriptions require Supabase");
   });

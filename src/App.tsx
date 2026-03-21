@@ -34,9 +34,14 @@ import type { UserRole } from "./types/auth";
 
 function parseParticipantEventSubscribeRoute(pathname: string): {
   eventId: string;
+  volunteerOnly: boolean;
 } | null {
+  const v = pathname.match(
+    /^\/participants\/event\/([^/]+)\/subscribe\/volunteer$/,
+  );
+  if (v) return { eventId: v[1], volunteerOnly: true };
   const m = pathname.match(/^\/participants\/event\/([^/]+)\/subscribe$/);
-  return m ? { eventId: m[1] } : null;
+  return m ? { eventId: m[1], volunteerOnly: false } : null;
 }
 
 function parseSignupRole(
@@ -51,7 +56,7 @@ function parseEventAdminRoute(pathname: string): {
   section: AdminEventSection;
 } | null {
   const match = pathname.match(
-    /^\/admin\/events\/([^/]+)\/(overview|registrations|announcements|scoreboard)$/,
+    /^\/admin\/events\/([^/]+)\/(overview|registrations|announcements|scoreboard|volunteers)$/,
   );
   if (!match) return null;
   return { eventId: match[1], section: match[2] as AdminEventSection };
@@ -300,9 +305,10 @@ function App() {
         {path === "/info/pitch-competition" && <PitchCompetitionPage />}
         {!isLoading && participantSubscribeRoute && (
           <EventAnnouncementsSubscribePage
-            key={participantSubscribeRoute.eventId}
+            key={`${participantSubscribeRoute.eventId}-${participantSubscribeRoute.volunteerOnly ? "v" : "p"}`}
             eventId={participantSubscribeRoute.eventId}
             onNavigate={navigate}
+            volunteerLink={participantSubscribeRoute.volunteerOnly}
           />
         )}
         {!isLoading && participantEventRoute && (

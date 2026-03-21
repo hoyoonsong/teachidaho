@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { ParticipantEventAnnouncementsList } from "../components/announcements/ParticipantEventAnnouncementsList";
+import { EventAnnouncementsSignupBlurb } from "../components/events/EventAnnouncementsSignupBlurb";
 import {
   getParticipantVisibleEvent,
+  isEventAnnouncementLocallyDeclined,
   participantCanViewEventScopedAnnouncements,
+  subscribeToEventAnnouncements,
   unsubscribeFromEventAnnouncements,
   type EventRecord,
 } from "../lib/appDataStore";
@@ -15,7 +18,7 @@ type ParticipantEventWorkspaceProps = {
   eventId: string;
   section: ParticipantEventSection;
   onNavigate: (to: string) => void;
-  /** Current app path — used to re-check opt-in when returning from /subscribe. */
+  /** Current app path — used to re-check opt-in after login or navigation. */
   locationPath: string;
 };
 
@@ -57,6 +60,13 @@ export function ParticipantEventWorkspace({
   const [canViewEventFeed, setCanViewEventFeed] = useState(false);
   const [feedAccessLoading, setFeedAccessLoading] = useState(true);
   const [feedRefreshKey, setFeedRefreshKey] = useState(0);
+  const [optInBusy, setOptInBusy] = useState(false);
+  const [optInError, setOptInError] = useState<string | null>(null);
+  const [unsubscribeError, setUnsubscribeError] = useState<string | null>(null);
+  const autoOptInAttempted = useRef(false);
+
+  const basePath = `/participants/event/${eventId}`;
+  const studentLoginUrl = `/login?signupRole=student&redirectTo=${encodeURIComponent(basePath)}`;
 
   /** Students/volunteers who are not opted in yet (teachers/admins use registration or global tools). */
   const showSubscribeCta =
@@ -64,6 +74,53 @@ export function ParticipantEventWorkspace({
     !feedAccessLoading &&
     !canViewEventFeed &&
     !(role === "teacher" || role === "admin");
+
+  /** Teacher with no submitted/approved registration for this event — same gate as the announcement feed. */
+  const showTeacherRegisterCta =
+    !authLoading &&
+    !feedAccessLoading &&
+    isAuthenticated &&
+    role === "teacher" &&
+    !canViewEventFeed;
+
+  const registerForThisEventUrl = `/participants/register?eventId=${encodeURIComponent(eventId)}`;
+
+  useEffect(() => {
+    autoOptInAttempted.current = false;
+  }, [eventId]);
+
+  /** Signed-in student/volunteer: opt in once automatically (same as legacy /subscribe). */
+  useEffect(() => {
+    if (!event || authLoading || feedAccessLoading) return;
+    if (role !== "student" && role !== "volunteer") return;
+    if (isEventAnnouncementLocallyDeclined(eventId)) return;
+    if (canViewEventFeed || autoOptInAttempted.current) return;
+    autoOptInAttempted.current = true;
+    void (async () => {
+      try {
+        await subscribeToEventAnnouncements(eventId);
+        const can = await participantCanViewEventScopedAnnouncements(
+          eventId,
+          role,
+          true,
+        );
+        setCanViewEventFeed(can);
+        setFeedRefreshKey((k) => k + 1);
+        setOptInError(null);
+      } catch {
+        autoOptInAttempted.current = false;
+        setOptInError("Could not enable announcements. Try again below.");
+      }
+    })();
+  }, [
+    event,
+    eventId,
+    role,
+    canViewEventFeed,
+    authLoading,
+    feedAccessLoading,
+    isAuthenticated,
+  ]);
 
   const loadEvent = useCallback(async () => {
     setLoading(true);
@@ -107,16 +164,41 @@ export function ParticipantEventWorkspace({
     ) {
       return;
     }
+    setUnsubscribeError(null);
     try {
       await unsubscribeFromEventAnnouncements(eventId);
       setCanViewEventFeed(false);
       setFeedRefreshKey((k) => k + 1);
-    } catch {
-      // no-op; user can retry from subscribe page
+      autoOptInAttempted.current = true;
+    } catch (e) {
+      setUnsubscribeError(
+        e instanceof Error
+          ? e.message
+          : "Could not update your preference. Try again.",
+      );
     }
   }
 
-  const basePath = `/participants/event/${eventId}`;
+  async function handleManualOptIn() {
+    if (role !== "student" && role !== "volunteer") return;
+    setOptInBusy(true);
+    setOptInError(null);
+    try {
+      await subscribeToEventAnnouncements(eventId);
+      const can = await participantCanViewEventScopedAnnouncements(
+        eventId,
+        role,
+        true,
+      );
+      setCanViewEventFeed(can);
+      setFeedRefreshKey((k) => k + 1);
+      setUnsubscribeError(null);
+    } catch {
+      setOptInError("Could not enable announcements. Check your connection.");
+    } finally {
+      setOptInBusy(false);
+    }
+  }
 
   const sectionTabs = useMemo(() => participantSectionTabs(event), [event]);
 
@@ -239,11 +321,34 @@ export function ParticipantEventWorkspace({
               </dl>
             </div>
 
+            {showTeacherRegisterCta ? (
+              <div className="rounded-2xl border border-indigo-200 bg-indigo-50/80 p-6 shadow-sm">
+                <h2 className="text-lg font-bold tracking-tight text-indigo-950 sm:text-xl">
+                  Register for this event
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-indigo-950/85">
+                  Submit your school&apos;s registration for{" "}
+                  <span className="font-semibold text-indigo-950">
+                    {event.name}
+                  </span>{" "}
+                  to unlock announcements and other participant updates on this
+                  page. You can save a draft and come back anytime.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onNavigate(registerForThisEventUrl)}
+                  className="mt-5 rounded-xl bg-indigo-900 px-5 py-2.5 text-sm font-bold text-white shadow-sm ring-2 ring-indigo-950/10 transition hover:bg-indigo-950"
+                >
+                  Register or continue registration
+                </button>
+              </div>
+            ) : null}
+
             {canViewEventFeed && role ? (
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <h1 className="text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
-                  Your Announcements
-                </h1>
+                <h2 className="text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
+                  Your announcements
+                </h2>
 
                 <div className="mt-5">
                   <ParticipantEventAnnouncementsList
@@ -255,37 +360,68 @@ export function ParticipantEventWorkspace({
                   />
                 </div>
                 {(role === "student" || role === "volunteer") && (
-                  <p className="mt-6 border-t border-slate-100 pt-4 text-center text-xs text-slate-500">
-                    <button
-                      type="button"
-                      onClick={() => void handleUnsubscribeFromEventUpdates()}
-                      className="underline decoration-slate-300 underline-offset-2 transition hover:text-slate-800"
-                    >
-                      Stop receiving announcements for this event
-                    </button>
-                  </p>
+                  <div className="mt-6 border-t border-slate-100 pt-4 text-center">
+                    {unsubscribeError ? (
+                      <p className="mb-3 text-xs font-medium text-rose-700">
+                        {unsubscribeError}
+                      </p>
+                    ) : null}
+                    <p className="text-xs text-slate-500">
+                      <button
+                        type="button"
+                        onClick={() => void handleUnsubscribeFromEventUpdates()}
+                        className="underline decoration-slate-300 underline-offset-2 transition hover:text-slate-800"
+                      >
+                        Stop receiving announcements for this event
+                      </button>
+                    </p>
+                  </div>
                 )}
               </div>
             ) : null}
 
             {showSubscribeCta ? (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
-                <p className="text-sm font-semibold text-emerald-950">
-                  Get updates for this event
-                </p>
-                <p className="mt-1 text-sm text-emerald-900/90">
-                  Sign in with a <strong>student</strong> or{" "}
-                  <strong>volunteer</strong> account and opt in to see{" "}
-                  event-wide <strong>public</strong> posts and role-specific
-                  announcements here.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => onNavigate(`${basePath}/subscribe`)}
-                  className="mt-3 rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-900"
-                >
-                  Receive announcements for this event
-                </button>
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-5 shadow-sm">
+                <EventAnnouncementsSignupBlurb
+                  registerAction={
+                    <button
+                      type="button"
+                      onClick={() => onNavigate("/participants/register")}
+                      className="font-semibold text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:decoration-emerald-600"
+                    >
+                      Register
+                    </button>
+                  }
+                  primaryAction={
+                    !isAuthenticated ? (
+                      <button
+                        type="button"
+                        onClick={() => onNavigate(studentLoginUrl)}
+                        className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+                      >
+                        Sign in or create account (student)
+                      </button>
+                    ) : role === "student" || role === "volunteer" ? (
+                      <div className="space-y-2">
+                        {optInError ? (
+                          <p className="text-sm font-medium text-rose-700">
+                            {optInError}
+                          </p>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={optInBusy}
+                          onClick={() => void handleManualOptIn()}
+                          className="rounded-xl bg-emerald-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-900 disabled:opacity-50"
+                        >
+                          {optInBusy
+                            ? "Enabling…"
+                            : "Enable announcements for this event"}
+                        </button>
+                      </div>
+                    ) : null
+                  }
+                />
               </div>
             ) : null}
           </div>

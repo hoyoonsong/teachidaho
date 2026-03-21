@@ -24,7 +24,7 @@ export function ParticipantEventScoreboardPage({
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [teams, setTeams] = useState<PublicScoreboardTeamRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedMobile, setExpandedMobile] = useState<Record<string, boolean>>({});
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -99,8 +99,8 @@ export function ParticipantEventScoreboardPage({
     return sortTeamIdsByScoreThenName(grid, out);
   }, [teams, grid]);
 
-  function toggleMobileRow(teamId: string) {
-    setExpandedMobile((prev) => ({ ...prev, [teamId]: !prev[teamId] }));
+  function toggleRow(teamId: string) {
+    setExpandedRows((prev) => ({ ...prev, [teamId]: !prev[teamId] }));
   }
 
   if (loading) {
@@ -157,113 +157,61 @@ export function ParticipantEventScoreboardPage({
       )}
 
       {hasColumns && displayTeams.length > 0 && (
-        <>
-          {/* Mobile: compact leaderboard — team + total; tap for breakdown */}
-          <div className="space-y-2 md:hidden">
-            {displayTeams.map((team, index) => {
-              const total = scoreboardRowTotal(grid, team.id);
-              const open = Boolean(expandedMobile[team.id]);
-              return (
-                <div
-                  key={team.id}
-                  className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+        <div className="space-y-2">
+          {displayTeams.map((team, index) => {
+            const total = scoreboardRowTotal(grid, team.id);
+            const open = Boolean(expandedRows[team.id]);
+            return (
+              <div
+                key={team.id}
+                className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleRow(team.id)}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-50/80"
                 >
-                  <button
-                    type="button"
-                    onClick={() => toggleMobileRow(team.id)}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-50/80"
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-bold text-slate-600">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-slate-900">{team.teamName}</div>
+                    <div className="text-xs text-slate-500">
+                      {open ? "Hide score breakdown" : "Show score breakdown"}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                      Total
+                    </div>
+                    <div className="text-xl font-black tabular-nums text-slate-900">{total}</div>
+                  </div>
+                  <span
+                    className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
+                    aria-hidden
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-bold text-slate-600">
-                      {index + 1}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-bold text-slate-900">{team.teamName}</div>
-                      <div className="text-xs text-slate-500">
-                        {open ? "Hide score breakdown" : "Show score breakdown"}
-                      </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                        Total
-                      </div>
-                      <div className="text-xl font-black tabular-nums text-slate-900">{total}</div>
-                    </div>
-                    <span
-                      className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
-                      aria-hidden
-                    >
-                      ▼
-                    </span>
-                  </button>
-                  {open && (
-                    <div className="space-y-2 border-t border-slate-100 bg-slate-50/90 px-4 py-3">
-                      {grid.columns.map((col) => (
-                        <div
-                          key={col.id}
-                          className="flex items-center justify-between gap-3 text-sm"
-                        >
-                          <span className="min-w-0 text-slate-600">{col.label}</span>
-                          <span className="shrink-0 font-semibold tabular-nums text-slate-900">
-                            {grid.cells[team.id]?.[col.id]?.trim() || "—"}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Desktop / tablet: full grid without school column */}
-          <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block">
-            <table className="w-max min-w-full min-w-[480px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-left">
-                  <th className="w-10 px-2 py-3 text-center text-xs font-semibold text-slate-600">
-                    #
-                  </th>
-                  <th className="w-[28%] min-w-[140px] px-3 py-3 font-semibold text-slate-800">
-                    Team
-                  </th>
-                  {grid.columns.map((col) => (
-                    <th
-                      key={col.id}
-                      title={col.label}
-                      className="min-w-[4rem] max-w-[9rem] break-words px-2 py-3 text-xs font-semibold uppercase tracking-wide text-slate-700"
-                    >
-                      {col.label}
-                    </th>
-                  ))}
-                  <th className="w-16 px-2 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-800">
-                    Total
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayTeams.map((team, index) => (
-                  <tr key={team.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-2 py-3 text-center tabular-nums text-slate-500">
-                      {index + 1}
-                    </td>
-                    <td className="px-3 py-3 font-medium text-slate-900">{team.teamName}</td>
+                    ▼
+                  </span>
+                </button>
+                {open && (
+                  <div className="space-y-2 border-t border-slate-100 bg-slate-50/90 px-4 py-3">
                     {grid.columns.map((col) => (
-                      <td
+                      <div
                         key={col.id}
-                        className="px-2 py-3 text-center text-slate-800 tabular-nums"
+                        className="flex items-center justify-between gap-3 text-sm"
                       >
-                        {grid.cells[team.id]?.[col.id]?.trim() || "—"}
-                      </td>
+                        <span className="min-w-0 text-slate-600">{col.label}</span>
+                        <span className="shrink-0 font-semibold tabular-nums text-slate-900">
+                          {grid.cells[team.id]?.[col.id]?.trim() || "—"}
+                        </span>
+                      </div>
                     ))}
-                    <td className="px-2 py-3 text-right text-sm font-bold tabular-nums text-slate-900">
-                      {scoreboardRowTotal(grid, team.id)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

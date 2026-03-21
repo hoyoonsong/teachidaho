@@ -56,9 +56,10 @@ export function AnnouncementsFeedPage({
         an event, you only see it after you&apos;re in that event:{" "}
         <span className="font-semibold text-slate-800">teachers</span> via
         submitted registration,{" "}
-        <span className="font-semibold text-slate-800">students</span> and{" "}
+        <span className="font-semibold text-slate-800">students</span> via the
+        event subscribe page and{" "}
         <span className="font-semibold text-slate-800">volunteers</span> via the
-        event subscribe page. Role-specific (teacher/student/volunteer) posts
+        coordinator&apos;s volunteer link/QR. Role-specific posts
         follow the same event rules. Sign in to comment.
       </p>
 
@@ -69,15 +70,15 @@ export function AnnouncementsFeedPage({
           No announcements to show yet.
         </p>
       ) : (
-        <ul className="mt-8 space-y-4">
+        <ul className="mt-8 space-y-3">
           {items.map((a) => (
             <li
               key={a.id}
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
             >
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-bold text-slate-900">{a.title}</h2>
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                <h2 className="text-base font-bold text-slate-900">{a.title}</h2>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
                   {a.audience}
                 </span>
               </div>
@@ -86,10 +87,10 @@ export function AnnouncementsFeedPage({
                   {a.eventName}
                 </p>
               ) : null}
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-0.5 text-[11px] text-slate-500">
                 {new Date(a.createdAt).toLocaleString()}
               </p>
-              <div className="mt-3 text-sm text-slate-700">
+              <div className="mt-2 text-sm leading-relaxed text-slate-800 [&_a]:text-blue-600 [&_a]:underline">
                 <RichTextDisplay content={a.body} />
               </div>
               <AnnouncementThread

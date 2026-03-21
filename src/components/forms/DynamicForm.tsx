@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { validateFormValues } from "../../lib/formValidation";
 import type {
   DynamicFormDefinition,
@@ -44,6 +44,40 @@ export function DynamicForm({
   const [values, setValues] = useState<FormSubmissionPayload>(defaultValues);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const lastInitialJson = useRef<string | null>(null);
+  useEffect(() => {
+    lastInitialJson.current = null;
+  }, [definition.id]);
+
+  /** When parent loads saved registration, apply once per distinct payload (stable vs {} placeholders). */
+  useEffect(() => {
+    const raw = initialValues ?? {};
+    const j = JSON.stringify(raw);
+    if (j === lastInitialJson.current) return;
+    if (j === "{}") {
+      lastInitialJson.current = j;
+      return;
+    }
+    lastInitialJson.current = j;
+    setValues((prev) => {
+      const next = { ...prev };
+      for (const field of definition.fields) {
+        const v = raw[field.id];
+        if (v === undefined) continue;
+        if (field.type === "checkbox") {
+          next[field.id] = Boolean(v);
+          continue;
+        }
+        if (v === null) {
+          next[field.id] = getDefaultValue(field);
+          continue;
+        }
+        next[field.id] = v as string | number | boolean;
+      }
+      return next;
+    });
+  }, [definition.fields, initialValues]);
 
   useEffect(() => {
     if (!prefillIfEmpty) return;

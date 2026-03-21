@@ -20,11 +20,6 @@ function payloadString(payload: FormSubmissionPayload, key: string): string {
   return String(v).trim();
 }
 
-function shortId(id: string) {
-  if (id.length <= 10) return id;
-  return `${id.slice(0, 8)}…`;
-}
-
 export function AdminEventRegistrationsPage({
   eventId,
 }: AdminEventRegistrationsPageProps) {
@@ -139,7 +134,9 @@ export function AdminEventRegistrationsPage({
               <div className="border-l-4 border-l-emerald-600 px-4 pb-4 pt-4 sm:px-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h3 className="min-w-0 text-lg font-black tracking-tight text-slate-900 sm:text-xl">
-                    <span className="text-slate-900">{submission.schoolName}</span>
+                    <span className="text-slate-900">
+                      {submission.schoolName}
+                    </span>
                     <span className="mx-2 font-medium text-slate-300">—</span>
                     <span className="text-slate-800">{teacherName}</span>
                   </h3>
@@ -154,15 +151,6 @@ export function AdminEventRegistrationsPage({
                     Registration details
                   </summary>
                   <div className="space-y-3 border-t border-slate-200/80 px-3 py-3 text-slate-600">
-                    <p className="text-xs leading-relaxed text-slate-500">
-                      <span className="font-semibold text-slate-600">
-                        Account ID:
-                      </span>{" "}
-                      <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px] text-slate-800 ring-1 ring-slate-200">
-                        {shortId(submission.teacherId)}
-                      </code>{" "}
-                      — distinguishes teachers and survives school renames.
-                    </p>
                     <p className="text-xs">
                       <span className="font-semibold text-slate-700">
                         {teacherEmail}
@@ -180,56 +168,51 @@ export function AdminEventRegistrationsPage({
                         </p>
                       </div>
                     ) : null}
-                    <details className="rounded-lg bg-white ring-1 ring-slate-200/80">
-                      <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-slate-600">
-                        Raw form JSON
-                      </summary>
-                      <pre className="max-h-40 overflow-auto border-t border-slate-100 p-2 text-[10px] text-slate-600">
-                        {JSON.stringify(submission.payload, null, 2)}
-                      </pre>
-                    </details>
+
+                    <div className="rounded-lg border border-violet-200 bg-violet-50/90 px-3 py-2.5 ring-1 ring-violet-100">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-violet-800">
+                          Admin notes
+                          <span className="ml-1.5 font-normal normal-case text-violet-700">
+                            (internal, editable)
+                          </span>
+                        </p>
+                        <button
+                          type="button"
+                          disabled={
+                            savingNotesId === submission.id ||
+                            patch === undefined
+                          }
+                          onClick={() =>
+                            void handleSaveAdminNotes(submission.id)
+                          }
+                          className="rounded-md bg-violet-700 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-violet-800 disabled:opacity-50"
+                        >
+                          {savingNotesId === submission.id ? "Saving…" : "Save"}
+                        </button>
+                      </div>
+                      <textarea
+                        rows={2}
+                        value={patch?.teacherNotes ?? ""}
+                        onChange={(ev) =>
+                          setEdits((cur) => {
+                            const prev = cur[submission.id];
+                            if (!prev) return cur;
+                            return {
+                              ...cur,
+                              [submission.id]: {
+                                ...prev,
+                                teacherNotes: ev.target.value,
+                              },
+                            };
+                          })
+                        }
+                        placeholder="Only staff see this…"
+                        className="mt-2 w-full resize-y rounded-md border border-violet-200/80 bg-white px-2 py-1.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
+                      />
+                    </div>
                   </div>
                 </details>
-
-                <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50/90 px-3 py-2.5 ring-1 ring-violet-100">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-violet-800">
-                      Admin notes
-                      <span className="ml-1.5 font-normal normal-case text-violet-700">
-                        (internal, editable)
-                      </span>
-                    </p>
-                    <button
-                      type="button"
-                      disabled={
-                        savingNotesId === submission.id || patch === undefined
-                      }
-                      onClick={() => void handleSaveAdminNotes(submission.id)}
-                      className="rounded-md bg-violet-700 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-violet-800 disabled:opacity-50"
-                    >
-                      {savingNotesId === submission.id ? "Saving…" : "Save"}
-                    </button>
-                  </div>
-                  <textarea
-                    rows={2}
-                    value={patch?.teacherNotes ?? ""}
-                    onChange={(ev) =>
-                      setEdits((cur) => {
-                        const prev = cur[submission.id];
-                        if (!prev) return cur;
-                        return {
-                          ...cur,
-                          [submission.id]: {
-                            ...prev,
-                            teacherNotes: ev.target.value,
-                          },
-                        };
-                      })
-                    }
-                    placeholder="Only staff see this…"
-                    className="mt-2 w-full resize-y rounded-md border border-violet-200/80 bg-white px-2 py-1.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
-                  />
-                </div>
 
                 <div className="mt-4">
                   <RegistrationTeamsEditor

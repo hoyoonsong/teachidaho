@@ -69,22 +69,22 @@ export function ParticipantEventAnnouncementsList({
   }
 
   return (
-    <ul className="space-y-4">
+    <ul className="space-y-3">
       {items.map((a) => (
         <li
           key={a.id}
-          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-lg font-bold text-slate-900">{a.title}</h3>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+            <h3 className="text-base font-bold text-slate-900">{a.title}</h3>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
               {a.audience}
             </span>
           </div>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-0.5 text-[11px] text-slate-500">
             {new Date(a.createdAt).toLocaleString()}
           </p>
-          <div className="mt-3 text-sm text-slate-700">
+          <div className="mt-2 text-sm leading-relaxed text-slate-800 [&_a]:text-blue-600 [&_a]:underline">
             <RichTextDisplay content={a.body} />
           </div>
           <AnnouncementThread

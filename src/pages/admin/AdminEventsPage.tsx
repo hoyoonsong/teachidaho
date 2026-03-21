@@ -155,13 +155,6 @@ export function AdminEventsPage({ onNavigate }: AdminEventsPageProps) {
           <h1 className="text-2xl font-black tracking-tight text-slate-900 md:text-3xl">
             Events
           </h1>
-          <button
-            type="button"
-            onClick={() => onNavigate("/admin/users")}
-            className="text-sm font-semibold text-violet-700 underline decoration-violet-200 underline-offset-2 hover:decoration-violet-500"
-          >
-            Users &amp; roles
-          </button>
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
           <span className="rounded-md bg-white px-2.5 py-1 font-semibold text-slate-600 ring-1 ring-slate-200">

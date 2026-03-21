@@ -4,7 +4,8 @@ export type AdminEventSection =
   | "overview"
   | "registrations"
   | "announcements"
-  | "scoreboard";
+  | "scoreboard"
+  | "volunteers";
 
 type AdminShellProps = {
   onNavigate: (to: string) => void;
@@ -21,6 +22,7 @@ const EVENT_SECTIONS: { id: AdminEventSection; label: string; path: string }[] =
     { id: "registrations", label: "Registrations", path: "/registrations" },
     { id: "announcements", label: "Announcements", path: "/announcements" },
     { id: "scoreboard", label: "Scoreboard", path: "/scoreboard" },
+    { id: "volunteers", label: "Volunteers", path: "/volunteers" },
   ];
 
 const SECTION_TITLE: Record<AdminEventSection, string> = {
@@ -28,6 +30,7 @@ const SECTION_TITLE: Record<AdminEventSection, string> = {
   registrations: "Registrations",
   announcements: "Announcements",
   scoreboard: "Scoreboard",
+  volunteers: "Volunteers",
 };
 
 export function AdminShell({

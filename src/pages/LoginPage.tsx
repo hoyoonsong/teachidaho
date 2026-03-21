@@ -95,8 +95,7 @@ export function LoginPage({
         </h1>
         <p className="mt-2 text-sm text-slate-600">
           Teachers, students, volunteers, and admins can use the same login.
-          Access to
-          routes and tools is controlled by role.
+          Access to routes and tools is controlled by role.
         </p>
         {isAuthenticated && (
           <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
@@ -220,8 +219,8 @@ export function LoginPage({
           </button>
           {(signupRole === "student" || signupRole === "volunteer") && (
             <p className="text-center text-xs text-slate-500">
-              Google sign-up defaults to a teacher profile. For a{" "}
-              {signupRole} account, use email + password above.
+              Google sign-up defaults to a teacher profile. For a {signupRole}{" "}
+              account, use email + password above.
             </p>
           )}
           {isAuthenticated && (

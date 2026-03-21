@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ParticipantEventAnnouncementsList } from "../components/announcements/ParticipantEventAnnouncementsList";
 import { useAuth } from "../hooks/useAuth";
 import {
@@ -12,24 +12,36 @@ import {
 type EventAnnouncementsSubscribePageProps = {
   eventId: string;
   onNavigate: (to: string) => void;
+  /** Volunteer QR landing — only volunteer accounts may subscribe here. */
+  volunteerLink?: boolean;
 };
 
-function buildLoginUrl(eventId: string, signupRole: "student" | "volunteer") {
-  const back = `/participants/event/${eventId}/subscribe`;
-  return `/login?signupRole=${signupRole}&redirectTo=${encodeURIComponent(back)}`;
+function buildVolunteerLoginUrl(eventId: string) {
+  const back = `/participants/event/${eventId}/subscribe/volunteer`;
+  return `/login?signupRole=volunteer&redirectTo=${encodeURIComponent(back)}`;
 }
 
 export function EventAnnouncementsSubscribePage({
   eventId,
   onNavigate,
+  volunteerLink = false,
 }: EventAnnouncementsSubscribePageProps) {
-  const { isAuthenticated, role, userId } = useAuth();
+  const {
+    isAuthenticated,
+    role,
+    userId,
+    isLoading: authLoading,
+  } = useAuth();
   const isAdmin = role === "admin";
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [subscribed, setSubscribed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const autoSubscribeAttempted = useRef(false);
+
+  const basePath = `/participants/event/${eventId}`;
+  const studentLoginWithReturn = `/login?signupRole=student&redirectTo=${encodeURIComponent(basePath)}`;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,6 +64,10 @@ export function EventAnnouncementsSubscribePage({
     void load();
   }, [load]);
 
+  useEffect(() => {
+    autoSubscribeAttempted.current = false;
+  }, [eventId, volunteerLink, role]);
+
   async function handleSubscribe() {
     setBusy(true);
     setError(null);
@@ -66,7 +82,8 @@ export function EventAnnouncementsSubscribePage({
   }
 
   async function handleUnsubscribe() {
-    if (!confirm("Stop receiving event-specific announcements for this event?")) return;
+    if (!confirm("Stop receiving event-specific announcements for this event?"))
+      return;
     setBusy(true);
     setError(null);
     try {
@@ -79,7 +96,61 @@ export function EventAnnouncementsSubscribePage({
     }
   }
 
-  const basePath = `/participants/event/${eventId}`;
+  /** Public URL only: opt in then main page handles the feed. */
+  useEffect(() => {
+    if (volunteerLink || loading || !event || authLoading) return;
+    if (!isAuthenticated || (role !== "student" && role !== "volunteer")) return;
+    if (subscribed || autoSubscribeAttempted.current) return;
+    autoSubscribeAttempted.current = true;
+    void (async () => {
+      try {
+        await subscribeToEventAnnouncements(eventId);
+        setSubscribed(true);
+      } catch (e) {
+        autoSubscribeAttempted.current = false;
+        setError(e instanceof Error ? e.message : "Subscribe failed.");
+      }
+    })();
+  }, [
+    volunteerLink,
+    loading,
+    event,
+    isAuthenticated,
+    role,
+    subscribed,
+    eventId,
+    authLoading,
+  ]);
+
+  /** Public URL: send guests and already-opted-in users to the main event page (or login first). */
+  useEffect(() => {
+    if (volunteerLink || loading || !event || authLoading) return;
+    if (!isAuthenticated) {
+      onNavigate(studentLoginWithReturn);
+      return;
+    }
+    if (role === "admin" || role === "teacher") {
+      onNavigate(basePath);
+      return;
+    }
+    if (
+      (role === "student" || role === "volunteer") &&
+      subscribed
+    ) {
+      onNavigate(basePath);
+    }
+  }, [
+    volunteerLink,
+    loading,
+    event,
+    isAuthenticated,
+    role,
+    subscribed,
+    basePath,
+    onNavigate,
+    studentLoginWithReturn,
+    authLoading,
+  ]);
 
   if (loading) {
     return (
@@ -106,190 +177,167 @@ export function EventAnnouncementsSubscribePage({
     );
   }
 
-  const needsStudentOrVolunteerAccount =
-    isAuthenticated && role === "teacher";
+  if (volunteerLink && authLoading) {
+    return (
+      <main className="mx-auto w-[min(94vw,720px)] px-4 py-10 sm:px-6">
+        <p className="text-sm font-semibold text-slate-600">Loading…</p>
+      </main>
+    );
+  }
 
-  const showSubscribedFeed =
-    subscribed && (role === "student" || role === "volunteer");
+  /** Volunteer QR: students never subscribe or see volunteer messaging here. */
+  if (volunteerLink && isAuthenticated && role === "student") {
+    return (
+      <main className="mx-auto w-[min(94vw,720px)] px-4 py-10 sm:px-6">
+        <button
+          type="button"
+          onClick={() => onNavigate(basePath)}
+          className="text-sm font-semibold text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
+        >
+          ← {event.name}
+        </button>
+        <h1 className="mt-6 text-3xl font-black tracking-tight text-slate-900">
+          Volunteers only
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-slate-600">
+          This link is for <strong>volunteer</strong> accounts. You’re signed in
+          as a <strong>student</strong>, so you can’t use the volunteer signup
+          flow here.
+        </p>
+        <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-semibold">Use your event page instead</p>
+          <p className="mt-2">
+            Student announcements and opt-in are on the main event dashboard—not
+            this volunteer link.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onNavigate(basePath)}
+          className="mt-6 rounded-xl bg-emerald-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-900"
+        >
+          Open event page
+        </button>
+      </main>
+    );
+  }
 
+  const showVolunteerFeed =
+    volunteerLink && subscribed && role === "volunteer";
+
+  if (volunteerLink) {
+    return (
+      <main className="mx-auto w-[min(94vw,720px)] px-4 py-10 sm:px-6">
+        <button
+          type="button"
+          onClick={() => onNavigate(basePath)}
+          className="text-sm font-semibold text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
+        >
+          ← {event.name}
+        </button>
+
+        <h1 className="mt-6 text-3xl font-black tracking-tight text-slate-900">
+          Volunteer announcements
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-slate-600">
+          This link is for <strong>volunteers</strong> only. Sign in or create a
+          volunteer account, then opt in for{" "}
+          <span className="font-semibold">{event.name}</span>.
+        </p>
+
+        {error ? (
+          <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+            {error}
+          </p>
+        ) : null}
+
+        {showVolunteerFeed ? (
+          <>
+            <p className="mt-6 text-sm text-slate-600">
+              You&apos;re subscribed to <strong>volunteer</strong> updates for
+              this event.
+            </p>
+            <div className="mt-8">
+              <ParticipantEventAnnouncementsList
+                eventId={eventId}
+                role={role}
+                currentUserId={userId}
+                isAdmin={isAdmin}
+              />
+            </div>
+            <p className="mt-8 text-center text-xs text-slate-500">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleUnsubscribe()}
+                className="underline decoration-slate-300 underline-offset-2 transition hover:text-slate-800 disabled:opacity-50"
+              >
+                Stop receiving announcements for this event
+              </button>
+            </p>
+          </>
+        ) : (
+          <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            {!isAuthenticated ? (
+              <>
+                <p className="text-sm text-slate-600">
+                  Sign in or create a volunteer account to finish subscribing.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onNavigate(buildVolunteerLoginUrl(eventId))}
+                  className="mt-4 rounded-xl bg-violet-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-900"
+                >
+                  Sign in or create volunteer account
+                </button>
+              </>
+            ) : role === "volunteer" ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleSubscribe()}
+                className="rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50"
+              >
+                {busy ? "Saving…" : "Receive volunteer announcements"}
+              </button>
+            ) : role === "teacher" ? (
+              <p className="text-sm text-amber-900">
+                Teacher accounts don&apos;t use this page. Use{" "}
+                <strong>Register</strong> for teacher updates, or sign out and
+                use a volunteer account here.
+              </p>
+            ) : role === "admin" ? (
+              <p className="text-sm text-slate-600">
+                Admins already see all announcements. Share this page with
+                volunteers via the QR code in the admin event workspace.
+              </p>
+            ) : null}
+          </section>
+        )}
+      </main>
+    );
+  }
+
+  /** Public `/subscribe`: only reached while student/volunteer and not subscribed yet (or error). */
   return (
     <main className="mx-auto w-[min(94vw,720px)] px-4 py-10 sm:px-6">
-      <button
-        type="button"
-        onClick={() => onNavigate(basePath)}
-        className="text-sm font-semibold text-slate-600 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
-      >
-        ← {event.name}
-      </button>
-
-      <h1 className="mt-6 text-3xl font-black tracking-tight text-slate-900">
-        Event announcements
-      </h1>
-
-      {showSubscribedFeed ? (
-        <>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">
-            You&apos;re receiving{" "}
-            <span className="font-semibold text-slate-800">
-              {role === "student" ? "student" : "volunteer"}
-            </span>{" "}
-            updates for <span className="font-semibold">{event.name}</span>.
-            Your event hub shows the same feed on the dashboard.
-          </p>
-          <div className="mt-8">
-            <ParticipantEventAnnouncementsList
-              eventId={eventId}
-              role={role}
-              currentUserId={userId}
-              isAdmin={isAdmin}
-            />
-          </div>
-          <p className="mt-8 text-center text-xs text-slate-500">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void handleUnsubscribe()}
-              className="underline decoration-slate-300 underline-offset-2 transition hover:text-slate-800 disabled:opacity-50"
-            >
-              Stop receiving announcements for this event
-            </button>
-          </p>
-        </>
-      ) : (
-        <p className="mt-2 text-sm leading-relaxed text-slate-600">
-          Subscribe to receive{" "}
-          <span className="font-semibold text-slate-800">student</span> or{" "}
-          <span className="font-semibold text-slate-800">volunteer</span>{" "}
-          announcements for this event, and{" "}
-          <span className="font-semibold text-slate-800">event-wide public</span>{" "}
-          posts (those stay hidden until you opt in). Teachers use{" "}
-          <strong>Register</strong> instead of this page.
-        </p>
-      )}
-
+      <p className="text-sm font-semibold text-slate-600">
+        {error
+          ? "Could not finish setup."
+          : "Turning on announcements for this event…"}
+      </p>
       {error ? (
-        <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-          {error}
-        </p>
+        <>
+          <p className="mt-2 text-sm text-rose-700">{error}</p>
+          <button
+            type="button"
+            onClick={() => onNavigate(basePath)}
+            className="mt-4 text-sm font-semibold text-emerald-800 underline"
+          >
+            Go to event page
+          </button>
+        </>
       ) : null}
-
-      <div className="mt-8 space-y-6">
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-bold text-slate-900">Students</h2>
-          <p className="mt-2 text-sm text-slate-600">
-            New here? Create a <strong>student</strong> account (email sign-up)
-            so you only get student announcements for events you care about.
-          </p>
-          {!isAuthenticated ? (
-            <button
-              type="button"
-              onClick={() => onNavigate(buildLoginUrl(eventId, "student"))}
-              className="mt-4 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
-            >
-              Sign in or create student account
-            </button>
-          ) : role === "student" ? (
-            <div className="mt-4">
-              {subscribed && showSubscribedFeed ? (
-                <p className="text-sm text-slate-600">
-                  Student updates for this event are on. Use the subtle link
-                  under the announcement list to opt out, or use another role
-                  below if needed.
-                </p>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void handleSubscribe()}
-                  className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
-                >
-                  {busy ? "Saving…" : "Receive student announcements"}
-                </button>
-              )}
-            </div>
-          ) : role === "admin" ? (
-            <p className="mt-4 text-sm text-slate-600">
-              As an admin you already see all announcements. Students use the
-              button above after signing in with a student account.
-            </p>
-          ) : needsStudentOrVolunteerAccount ? (
-            <p className="mt-4 text-sm text-amber-900">
-              Your account is a <strong>teacher</strong> profile. Student
-              announcements use a separate student login. Sign out and create a
-              student account with the button above, or ask an admin to add a
-              second account for you.
-            </p>
-          ) : role === "volunteer" ? (
-            <p className="mt-4 text-sm text-slate-600">
-              Use the volunteer section below for volunteer-targeted posts.
-            </p>
-          ) : null}
-        </section>
-
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-bold text-slate-900">Volunteers</h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Subscribe to receive volunteer announcements for this event. Use a{" "}
-            <strong>volunteer</strong> account (email sign-up).
-          </p>
-          {!isAuthenticated ? (
-            <button
-              type="button"
-              onClick={() => onNavigate(buildLoginUrl(eventId, "volunteer"))}
-              className="mt-4 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
-            >
-              Sign in or create volunteer account
-            </button>
-          ) : role === "volunteer" ? (
-            <div className="mt-4">
-              {subscribed && showSubscribedFeed ? (
-                <p className="text-sm text-slate-600">
-                  Volunteer updates for this event are on. Use the link under
-                  the announcement list to opt out.
-                </p>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void handleSubscribe()}
-                  className="rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50"
-                >
-                  {busy ? "Saving…" : "Subscribe as volunteer"}
-                </button>
-              )}
-            </div>
-          ) : role === "admin" ? (
-            <p className="mt-4 text-sm text-slate-600">
-              Volunteers sign in with a volunteer account to subscribe here.
-            </p>
-          ) : role === "teacher" ? (
-            <p className="mt-4 text-sm text-amber-900">
-              Your account is a <strong>teacher</strong> profile. Sign out and
-              create a volunteer account to subscribe here, or ask an admin.
-            </p>
-          ) : role === "student" ? (
-            <p className="mt-4 text-sm text-slate-600">
-              Use the student section above for student-targeted posts.
-            </p>
-          ) : null}
-        </section>
-
-        <section className="rounded-xl border border-slate-100 bg-slate-50/80 p-4 text-sm text-slate-600">
-          <p>
-            <strong className="text-slate-800">Teachers:</strong> you receive
-            teacher announcements automatically when you register for this event
-            on the{" "}
-            <button
-              type="button"
-              onClick={() => onNavigate("/participants/register")}
-              className="font-semibold text-emerald-800 underline decoration-emerald-200"
-            >
-              Register
-            </button>{" "}
-            page.
-          </p>
-        </section>
-      </div>
     </main>
   );
 }

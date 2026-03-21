@@ -41,6 +41,42 @@ function roleInParens(role: string | null | undefined): string {
   return "member";
 }
 
+function IconChevronRight({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
+
+function IconChevronDown({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
 function ChatPlusIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -61,25 +97,6 @@ function ChatPlusIcon({ className }: { className?: string }) {
   );
 }
 
-function LockIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <rect width="14" height="10" x="5" y="11" rx="2" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-    </svg>
-  );
-}
-
 function CommentCard({
   c,
   depth,
@@ -92,7 +109,7 @@ function CommentCard({
   depth: number;
   currentUserId: string | null;
   isAdmin: boolean;
-  onReply: (id: string) => void;
+  onReply: (parent: AnnouncementCommentRecord) => void;
   onDeleted: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -112,47 +129,51 @@ function CommentCard({
 
   const displayName = c.authorName || c.authorEmail || "Member";
   const role = roleInParens(c.authorRole);
+  const isReply = depth > 0;
 
   return (
     <div
-      className={`rounded-lg px-3 py-2 text-sm ${
-        isPrivate
-          ? "border-2 border-violet-400 bg-violet-50/95 ring-1 ring-violet-200/80"
-          : `border border-slate-200 bg-slate-50/80 ${
-              depth > 0 ? "ml-4 mt-2 border-l-2 border-l-violet-200" : ""
-            }`
+      className={`rounded-lg text-xs transition-shadow ${
+        isReply
+          ? "relative ml-5 mt-2 border border-slate-200/90 border-l-[3px] border-l-emerald-500/80 bg-slate-50/90 pl-3 pr-2.5 py-2 shadow-[inset_2px_0_0_rgba(16,185,129,0.12)]"
+          : "border border-slate-200 bg-white px-2.5 py-1.5"
       }`}
     >
-      <div className="flex flex-wrap items-center gap-2">
-        {isPrivate ? (
-          <LockIcon className="h-3.5 w-3.5 shrink-0 text-violet-700" />
-        ) : null}
-        <span className="font-semibold text-slate-900">
+      {isReply ? (
+        <p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-800/90">
+          <span className="text-emerald-600" aria-hidden>
+            ↳
+          </span>
+          Reply
+        </p>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className="font-semibold text-slate-800">
           {displayName}{" "}
-          <span className="font-medium text-slate-500">({role})</span>
+          <span className="font-normal text-slate-500">({role})</span>
         </span>
         {isPrivate ? (
-          <span className="rounded-md bg-violet-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-            Private — only you &amp; staff
+          <span className="shrink-0 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold capitalize text-violet-700">
+            private
           </span>
         ) : (
-          <span className="rounded-md bg-slate-200/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
-            Public
+          <span className="shrink-0 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+            public
           </span>
         )}
-        <span className="text-xs text-slate-400">
+        <span className="text-[11px] text-slate-400">
           {new Date(c.createdAt).toLocaleString()}
         </span>
       </div>
-      <div className="mt-1.5 text-sm leading-relaxed text-slate-800 [&_a]:text-blue-600 [&_a]:underline">
+      <div className="mt-1 text-xs leading-relaxed text-slate-700 [&_a]:text-blue-600 [&_a]:underline">
         <RichTextDisplay content={c.body} />
       </div>
-      <div className="mt-2 flex flex-wrap gap-2">
+      <div className="mt-1.5 flex flex-wrap gap-2">
         {currentUserId ? (
           <button
             type="button"
-            onClick={() => onReply(c.id)}
-            className="text-xs font-semibold text-emerald-800 underline decoration-emerald-300"
+            onClick={() => onReply(c)}
+            className="text-[11px] font-semibold text-emerald-800 underline decoration-emerald-200"
           >
             Reply
           </button>
@@ -162,7 +183,7 @@ function CommentCard({
             type="button"
             disabled={busy}
             onClick={() => void handleDelete()}
-            className="text-xs font-semibold text-rose-700 underline decoration-rose-300 disabled:opacity-50"
+            className="text-[11px] font-semibold text-rose-700 underline decoration-rose-200 disabled:opacity-50"
           >
             Delete
           </button>
@@ -183,12 +204,18 @@ export function AnnouncementThread({
   const [visibility, setVisibility] =
     useState<AnnouncementCommentVisibility>("public");
   const [replyToId, setReplyToId] = useState<string | null>(null);
+  /** Visibility of the comment being replied to (for hint text only). */
+  const [repliedToVisibility, setRepliedToVisibility] =
+    useState<AnnouncementCommentVisibility | null>(null);
   const [posting, setPosting] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [threadOpen, setThreadOpen] = useState(false);
 
   const showComposer = Boolean(
     currentUserId && (composerOpen || replyToId !== null),
   );
+
+  const commentCount = items.length;
 
   const load = useCallback(async () => {
     const rows = await listAnnouncementComments(announcementId);
@@ -203,24 +230,32 @@ export function AnnouncementThread({
 
   function openNewComment() {
     setReplyToId(null);
+    setRepliedToVisibility(null);
     setVisibility("public");
     setComposerOpen(true);
+    setThreadOpen(true);
   }
 
-  function beginReply(id: string) {
-    setReplyToId(id);
-    setVisibility("private");
+  function beginReply(parent: AnnouncementCommentRecord) {
+    const v: AnnouncementCommentVisibility =
+      parent.visibility === "private" ? "private" : "public";
+    setReplyToId(parent.id);
+    setRepliedToVisibility(v);
+    setVisibility(v);
     setComposerOpen(true);
+    setThreadOpen(true);
   }
 
   function switchToTopLevelComment() {
     setReplyToId(null);
+    setRepliedToVisibility(null);
     setVisibility("public");
   }
 
   function closeComposer() {
     setComposerOpen(false);
     setReplyToId(null);
+    setRepliedToVisibility(null);
     setBody("");
     setVisibility("public");
   }
@@ -230,17 +265,26 @@ export function AnnouncementThread({
     if (!currentUserId || !htmlToPlainText(body)) return;
     setPosting(true);
     try {
-      await addAnnouncementComment({
+      const created = await addAnnouncementComment({
         announcementId,
         parentId: replyToId,
         body: body.trim(),
         visibility,
+        authorId: currentUserId,
       });
       setBody("");
       setReplyToId(null);
+      setRepliedToVisibility(null);
       setComposerOpen(false);
       setVisibility("public");
-      await load();
+      setThreadOpen(true);
+      setItems((prev) => {
+        if (prev.some((x) => x.id === created.id)) return prev;
+        return [...prev, created].sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        );
+      });
     } finally {
       setPosting(false);
     }
@@ -258,7 +302,8 @@ export function AnnouncementThread({
 
   function renderReplies(parentId: string, depth: number): ReactNode {
     const kids = byParent.get(parentId) ?? [];
-    return kids.map((c) => (
+    if (kids.length === 0) return null;
+    const blocks = kids.map((c) => (
       <div key={c.id}>
         <CommentCard
           c={c}
@@ -271,130 +316,172 @@ export function AnnouncementThread({
         {renderReplies(c.id, depth + 1)}
       </div>
     ));
+    if (depth === 1) {
+      return (
+        <div className="mt-1 space-y-0 border-l-2 border-emerald-200/70 pl-3">
+          {blocks}
+        </div>
+      );
+    }
+    return blocks;
   }
 
-  return (
-    <div className="mt-4 border-t border-slate-200 pt-4">
-      <h3 className="text-sm font-bold text-slate-800">Comments</h3>
+  const panelId = `announcement-thread-${announcementId}`;
 
-      {loading ? (
-        <p className="mt-2 text-xs text-slate-500">Loading comments…</p>
-      ) : (
-        <div className="mt-3 space-y-2">
-          {roots.length === 0 ? (
+  return (
+    <div className="mt-3 border-t border-slate-100 pt-3">
+      <button
+        type="button"
+        id={`${panelId}-toggle`}
+        aria-expanded={threadOpen}
+        aria-controls={panelId}
+        onClick={() => setThreadOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+      >
+        <span>
+          Comments
+          <span className="ml-1.5 font-normal text-slate-500">
+            ({commentCount})
+          </span>
+        </span>
+        <span className="shrink-0 text-slate-500" aria-hidden>
+          {threadOpen ? (
+            <IconChevronDown className="h-4 w-4" />
+          ) : (
+            <IconChevronRight className="h-4 w-4" />
+          )}
+        </span>
+      </button>
+
+      {threadOpen ? (
+        <div id={panelId} className="mt-2 space-y-2" role="region">
+          {loading ? (
+            <p className="text-xs text-slate-500">Loading comments…</p>
+          ) : roots.length === 0 ? (
             <p className="text-xs text-slate-500">No comments yet.</p>
           ) : (
-            roots.map((c) => (
-              <div key={c.id}>
-                <CommentCard
-                  c={c}
-                  depth={0}
-                  currentUserId={currentUserId}
-                  isAdmin={isAdmin}
-                  onReply={beginReply}
-                  onDeleted={() => void load()}
-                />
-                {renderReplies(c.id, 1)}
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {currentUserId ? (
-        <div className="mt-4">
-          {!showComposer ? (
-            <button
-              type="button"
-              onClick={openNewComment}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
-            >
-              <ChatPlusIcon className="h-4 w-4 text-emerald-700" />
-              Add comment
-            </button>
-          ) : (
-            <form className="space-y-2" onSubmit={handlePost}>
-              {replyToId ? (
-                <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-950">
-                  <p className="font-semibold">Replying in a thread</p>
-                  <p className="mt-0.5 text-violet-900/90">
-                    Defaults to <strong>private</strong> (only you and staff).
-                    The original poster can always read replies to their private
-                    comment.
-                  </p>
-                  <button
-                    type="button"
-                    className="mt-2 font-semibold text-violet-800 underline"
-                    onClick={switchToTopLevelComment}
-                  >
-                    New top-level comment
-                  </button>
+            <div className="space-y-1.5">
+              {roots.map((c) => (
+                <div key={c.id}>
+                  <CommentCard
+                    c={c}
+                    depth={0}
+                    currentUserId={currentUserId}
+                    isAdmin={isAdmin}
+                    onReply={beginReply}
+                    onDeleted={() => void load()}
+                  />
+                  {renderReplies(c.id, 1)}
                 </div>
-              ) : (
-                <p className="text-xs text-slate-600">
-                  {isAdmin
-                    ? "Visible to everyone who can see this announcement unless you choose private."
-                    : "Public comments are visible to all readers of this post."}
-                </p>
-              )}
-              <div>
-                <span className="sr-only">Comment</span>
-                <RichTextEditor
-                  value={body}
-                  onChange={setBody}
-                  rows={4}
-                  compact
-                  toolbarMode="always"
-                  placeholder={
-                    replyToId
-                      ? "Write a reply…"
-                      : isAdmin
-                        ? "Add a follow-up or clarification…"
-                        : "Ask a question or add a note…"
-                  }
-                  editorClassName="min-h-[5.5rem] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="flex items-center gap-2 text-xs text-slate-600">
-                  <span>Visibility</span>
-                  <select
-                    value={visibility}
-                    onChange={(ev) =>
-                      setVisibility(
-                        ev.target.value as AnnouncementCommentVisibility,
-                      )
-                    }
-                    className="rounded border border-slate-300 px-2 py-1 text-sm"
-                  >
-                    <option value="public">Public</option>
-                    <option value="private">Private (you + staff)</option>
-                  </select>
-                </label>
-                <button
-                  type="submit"
-                  disabled={posting}
-                  className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {posting ? "Posting…" : "Post"}
-                </button>
+              ))}
+            </div>
+          )}
+
+          {currentUserId ? (
+            <div className="pt-1">
+              {!showComposer ? (
                 <button
                   type="button"
-                  disabled={posting}
-                  onClick={closeComposer}
-                  className="text-sm font-semibold text-slate-600 underline decoration-slate-300"
+                  onClick={openNewComment}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
-                  Cancel
+                  <ChatPlusIcon className="h-3.5 w-3.5 text-emerald-700" />
+                  Add comment
                 </button>
-              </div>
-            </form>
+              ) : (
+                <form className="space-y-2" onSubmit={handlePost}>
+                  {replyToId ? (
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-700">
+                      <p className="font-semibold text-slate-800">
+                        Replying in a thread
+                      </p>
+                      <p className="mt-0.5 text-slate-600">
+                        You&apos;re replying to a{" "}
+                        {repliedToVisibility === "private" ? (
+                          <span className="font-semibold text-violet-700">
+                            private
+                          </span>
+                        ) : (
+                          <span className="font-semibold text-slate-800">
+                            public
+                          </span>
+                        )}{" "}
+                        comment; your reply defaults the same way. Change below if
+                        needed.
+                      </p>
+                      <button
+                        type="button"
+                        className="mt-1.5 font-semibold text-slate-800 underline"
+                        onClick={switchToTopLevelComment}
+                      >
+                        New top-level comment
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-600">
+                      {isAdmin
+                        ? "Visible to everyone who can see this announcement unless you choose private."
+                        : "Public comments are visible to all readers of this post."}
+                    </p>
+                  )}
+                  <div>
+                    <span className="sr-only">Comment</span>
+                    <RichTextEditor
+                      value={body}
+                      onChange={setBody}
+                      rows={3}
+                      compact
+                      toolbarMode="always"
+                      placeholder={
+                        replyToId
+                          ? "Write a reply…"
+                          : isAdmin
+                            ? "Add a follow-up or clarification…"
+                            : "Ask a question or add a note…"
+                      }
+                      editorClassName="min-h-[4rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                      <span>Visibility</span>
+                      <select
+                        value={visibility}
+                        onChange={(ev) =>
+                          setVisibility(
+                            ev.target.value as AnnouncementCommentVisibility,
+                          )
+                        }
+                        className="rounded border border-slate-300 px-1.5 py-0.5 text-xs"
+                      >
+                        <option value="public">Public</option>
+                        <option value="private">Private</option>
+                      </select>
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={posting}
+                      className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      {posting ? "Posting…" : "Post"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={posting}
+                      onClick={closeComposer}
+                      className="text-xs font-semibold text-slate-600 underline decoration-slate-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">Sign in to join the discussion.</p>
           )}
         </div>
-      ) : (
-        <p className="mt-3 text-xs text-slate-500">
-          Sign in to join the discussion.
-        </p>
-      )}
+      ) : null}
     </div>
   );
 }
