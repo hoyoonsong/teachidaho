@@ -37,3 +37,11 @@ Same rules apply to any Vite + Supabase SPA:
 - Server (Supabase): allow every origin you use under **Redirect URLs**.
 
 We can’t read projects on your Desktop from here; if **apply-hub** does something different, copy its **Supabase URL settings** (screenshot or list of Redirect URLs + Site URL) into this project’s dashboard to match.
+
+## Vercel: `404 NOT_FOUND` on `/login?code=…` (production)
+
+OAuth sends the browser to a **real URL** like `https://teachidaho.vercel.app/login?code=…`. Vite only outputs **`index.html` at the root**; there is no file at `/login`, so Vercel returns [NOT_FOUND](https://vercel.com/docs/errors/NOT_FOUND) unless you configure a **SPA fallback**.
+
+This repo includes **`vercel.json`** with a rewrite so unknown paths are served **`index.html`**, and React can render `/login` on the client.
+
+After adding or changing it, **redeploy** on Vercel. In project settings, confirm **Framework Preset** is Vite (or **Output Directory** is `dist` if you override the build).
