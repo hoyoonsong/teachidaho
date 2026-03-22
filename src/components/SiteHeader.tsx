@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import logo from "../assets/teachidaho-logo.png";
-import type { UserRole } from "../types/auth";
 import { HeaderNotifications } from "./HeaderNotifications";
 
 type SiteHeaderProps = {
   currentPath: string;
   onNavigate: (to: string) => void;
-  role: UserRole | null;
+  /** Nav-only: show Admin menu (includes cached admin while profile REST finishes). */
+  showAdminNav: boolean;
   isAuthenticated: boolean;
   onSignOut: () => Promise<void>;
 };
@@ -21,7 +21,7 @@ const ADMIN_MENU: { href: string; label: string }[] = [
 export function SiteHeader({
   currentPath,
   onNavigate,
-  role,
+  showAdminNav,
   isAuthenticated,
   onSignOut,
 }: SiteHeaderProps) {
@@ -87,7 +87,7 @@ export function SiteHeader({
               {link.label}
             </button>
           ))}
-          {role === "admin" ? (
+          {showAdminNav ? (
             <div className="relative" ref={adminWrapRef}>
               <button
                 type="button"
@@ -179,7 +179,7 @@ export function SiteHeader({
                 {link.label}
               </button>
             ))}
-            {role === "admin" ? (
+            {showAdminNav ? (
               <div className="border-t border-slate-100 pt-2">
                 <button
                   type="button"

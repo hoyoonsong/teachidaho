@@ -32,6 +32,11 @@ type AuthContextValue = {
   /** Supabase auth user id when signed in. */
   userId: string | null;
   role: UserRole | null;
+  /**
+   * Use for **nav only**: true when `role` is admin or localStorage cache says admin for this
+   * user (so the Admin menu appears immediately after OAuth while REST profile fetch catches up).
+   */
+  adminNavVisible: boolean;
   email: string | null;
   /** Best-effort display name from profile or auth metadata (user may edit on forms). */
   displayName: string | null;
@@ -76,32 +81,63 @@ function clearCachedRole(userId: string) {
   window.localStorage.removeItem(roleCacheKey(userId));
 }
 
+/**
+ * Loads `profiles` via PostgREST `fetch` + the user JWT — not `supabase.from()`, which can
+ * hang right after OAuth (same client issue as the Participants events list had).
+ */
 async function fetchProfileBasics(
   userId: string,
+  accessToken: string | undefined,
 ): Promise<{ role: UserRole | null; fullName: string | null }> {
-  const client = supabase;
-  if (!client) return { role: null, fullName: null };
+  const baseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(
+    /\/$/,
+    "",
+  );
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  if (!baseUrl || !anonKey || !accessToken) {
+    return { role: null, fullName: null };
+  }
+
+  const url = `${baseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=role,full_name`;
 
   try {
-    const result = await withNetworkRetries(async () => {
-      const res = await client
-        .from("profiles")
-        .select("role, full_name")
-        .eq("id", userId)
-        .single<ProfileRow>();
-      if (res.error?.code === "PGRST116") return res;
-      if (res.error) throw res.error;
-      return res;
-    });
-
-    if (result.error || !result.data) {
-      return { role: null, fullName: null };
-    }
-    const fn = result.data.full_name?.trim() || null;
-    return {
-      role: result.data.role ?? null,
-      fullName: fn,
-    };
+    return await withNetworkRetries(
+      async () => {
+        const ac = new AbortController();
+        const tid = window.setTimeout(() => ac.abort(), 15_000);
+        try {
+          const res = await fetch(url, {
+            method: "GET",
+            headers: {
+              apikey: anonKey,
+              Authorization: `Bearer ${accessToken}`,
+              Accept: "application/json",
+            },
+            signal: ac.signal,
+          });
+          if (!res.ok) {
+            const t = await res.text();
+            throw new Error(`profiles HTTP ${res.status}: ${t.slice(0, 240)}`);
+          }
+          const data: unknown = await res.json();
+          const rows = Array.isArray(data) ? data : [];
+          const row = rows[0] as ProfileRow | undefined;
+          if (!row) {
+            return { role: null, fullName: null };
+          }
+          const rawRole = row.role;
+          const roleOut =
+            typeof rawRole === "string" && isUserRole(rawRole)
+              ? rawRole
+              : null;
+          const fn = row.full_name?.trim() || null;
+          return { role: roleOut, fullName: fn };
+        } finally {
+          window.clearTimeout(tid);
+        }
+      },
+      { retries: 4, delayMs: 350 },
+    );
   } catch {
     return { role: null, fullName: null };
   }
@@ -139,7 +175,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRole(null);
       }
 
-      const { role: liveRole, fullName } = await fetchProfileBasics(userId);
+      const { role: liveRole, fullName } = await fetchProfileBasics(
+        userId,
+        nextSession.access_token,
+      );
       if (fullName) {
         setProfileFullName(fullName);
       } else {
@@ -429,12 +468,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const displayName = profileFullName ?? displayNameFromSession(session);
 
+  const adminNavVisible =
+    role === "admin" ||
+    Boolean(
+      session?.user.id && getCachedRole(session.user.id) === "admin",
+    );
+
   const value = useMemo<AuthContextValue>(
     () => ({
       isLoading,
       isAuthenticated: Boolean(session),
       userId: session?.user.id ?? null,
       role,
+      adminNavVisible,
       email: session?.user.email ?? null,
       displayName,
       hasSupabaseCredentials,
@@ -447,6 +493,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [
       isLoading,
       role,
+      adminNavVisible,
       session,
       session?.user.id,
       displayName,

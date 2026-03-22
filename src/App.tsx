@@ -94,7 +94,14 @@ function App() {
     search: window.location.search,
   });
   const mixedGallery = useMemo(() => buildMixedGallery(), []);
-  const { isLoading, isAuthenticated, role, signOut, refreshRole } = useAuth();
+  const {
+    isLoading,
+    isAuthenticated,
+    role,
+    adminNavVisible,
+    signOut,
+    refreshRole,
+  } = useAuth();
 
   useEffect(() => {
     const handlePopState = () =>
@@ -128,8 +135,6 @@ function App() {
   const searchParams = new URLSearchParams(location.search);
   const redirectTo = searchParams.get("redirectTo") ?? "/";
   const isAdminPath = path === "/admin" || path.startsWith("/admin/");
-  const needsAuthGate =
-    path === "/login" || path === "/participants/register" || isAdminPath;
 
   const participantEventRoute = parseParticipantEventRoute(path);
   const participantSubscribeRoute = parseParticipantEventSubscribeRoute(path);
@@ -266,7 +271,7 @@ function App() {
       <SiteHeader
         currentPath={path}
         onNavigate={navigate}
-        role={role}
+        showAdminNav={adminNavVisible}
         isAuthenticated={isAuthenticated}
         onSignOut={handleSignOut}
       />
@@ -280,13 +285,20 @@ function App() {
             signupRole={signupRoleHint}
           />
         )}
-        {isLoading && needsAuthGate && path !== "/login" && (
-          <main className="mx-auto w-[min(94vw,720px)] px-6 py-16">
-            <p className="text-sm font-semibold text-slate-600">
-              Loading account...
-            </p>
-          </main>
-        )}
+        {/**
+         * While auth is bootstrapping, hold **register** and **admin** on this screen. Do not
+         * gate `/participants/event/...` here — those paths would otherwise render nothing until
+         * `isLoading` flips (blank main on hard loads / production).
+         */}
+        {isLoading &&
+          path !== "/login" &&
+          (path === "/participants/register" || isAdminPath) && (
+            <main className="mx-auto w-[min(94vw,720px)] px-6 py-16">
+              <p className="text-sm font-semibold text-slate-600">
+                Loading account...
+              </p>
+            </main>
+          )}
         {!isLoading && isAdminPath && renderAdminPage()}
         {!isLoading &&
           path === "/participants/register" &&
@@ -305,7 +317,7 @@ function App() {
         {path === "/gallery" && <GalleryPage mixedGallery={mixedGallery} />}
         {path === "/info/econsummit" && <EconSummitPage />}
         {path === "/info/pitch-competition" && <PitchCompetitionPage />}
-        {!isLoading && participantSubscribeRoute && (
+        {participantSubscribeRoute && (
           <EventAnnouncementsSubscribePage
             key={`${participantSubscribeRoute.eventId}-${participantSubscribeRoute.volunteerOnly ? "v" : "p"}`}
             eventId={participantSubscribeRoute.eventId}
@@ -313,7 +325,7 @@ function App() {
             volunteerLink={participantSubscribeRoute.volunteerOnly}
           />
         )}
-        {!isLoading && participantEventRoute && (
+        {participantEventRoute && (
           <ParticipantEventWorkspace
             key={participantEventRoute.eventId}
             eventId={participantEventRoute.eventId}
