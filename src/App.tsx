@@ -271,19 +271,21 @@ function App() {
         onSignOut={handleSignOut}
       />
       <div className="flex-1">
-        {isLoading && needsAuthGate && (
+        {/** /login must mount during OAuth (?code=) even while auth is still bootstrapping, or redirect never runs. */}
+        {path === "/login" && (
+          <LoginPage
+            key={signupRoleHint ?? "default"}
+            onNavigate={navigate}
+            redirectTo={redirectTo}
+            signupRole={signupRoleHint}
+          />
+        )}
+        {isLoading && needsAuthGate && path !== "/login" && (
           <main className="mx-auto w-[min(94vw,720px)] px-6 py-16">
             <p className="text-sm font-semibold text-slate-600">
               Loading account...
             </p>
           </main>
-        )}
-        {!isLoading && path === "/login" && (
-          <LoginPage
-            onNavigate={navigate}
-            redirectTo={redirectTo}
-            signupRole={signupRoleHint}
-          />
         )}
         {!isLoading && isAdminPath && renderAdminPage()}
         {!isLoading &&

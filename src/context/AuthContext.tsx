@@ -8,7 +8,11 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { withNetworkRetries } from "../lib/networkRetry";
-import { hasSupabaseCredentials, supabase } from "../lib/supabase";
+import {
+  clearPersistedSupabaseSession,
+  hasSupabaseCredentials,
+  supabase,
+} from "../lib/supabase";
 import type { UserRole } from "../types/auth";
 
 const ROLE_CACHE_VALUES: readonly UserRole[] = [
@@ -214,6 +218,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!active) return;
 
         setSession(nextSession);
+        /** Don’t block the whole app (or /login) on profiles fetch — OAuth callback needs to render + redirect. */
+        if (active) setIsLoading(false);
         await resolveRoleFromSession(nextSession);
       } catch (error) {
         if (!active) return;
@@ -376,21 +382,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     const currentUserId = session?.user.id ?? null;
-    if (supabase && hasSupabaseCredentials) {
-      try {
-        await supabase.auth.signOut({ scope: "local" });
-      } catch (error) {
-        console.warn(
-          "Supabase sign out failed, clearing local auth state.",
-          error,
-        );
-      }
-    }
     if (currentUserId) {
       clearCachedRole(currentUserId);
     }
+
+    /**
+     * Clear React auth state **synchronously** (this tick). After OAuth, `signOut()` can
+     * hang; if we awaited it before this, “Sign out” looked dead. `App` awaits this before
+     * `navigate("/login")`, so we must not block on GoTrue.
+     */
     setRole(null);
     setSession(null);
+    setIsLoading(false);
+
+    if (!supabase || !hasSupabaseCredentials) {
+      return;
+    }
+
+    const client = supabase;
+    const SIGN_OUT_WAIT_MS = 5000;
+    void (async () => {
+      try {
+        try {
+          client.auth.stopAutoRefresh();
+        } catch {
+          /* ignore */
+        }
+        await Promise.race([
+          client.auth.signOut({ scope: "local" }),
+          new Promise<never>((_, reject) => {
+            window.setTimeout(
+              () => reject(new Error("signOut timed out")),
+              SIGN_OUT_WAIT_MS,
+            );
+          }),
+        ]);
+      } catch (error) {
+        console.warn(
+          "[TeachIdaho] Supabase signOut failed or timed out; clearing persisted session.",
+          error,
+        );
+        clearPersistedSupabaseSession();
+      }
+    })();
   }, [session?.user.id]);
 
   const displayName = profileFullName ?? displayNameFromSession(session);

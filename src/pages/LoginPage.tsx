@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
-import { hasSupabaseCredentials, supabase } from "../lib/supabase";
+import { supabase } from "../lib/supabase";
 
 type LoginPageProps = {
   onNavigate: (to: string) => void;
@@ -15,23 +15,22 @@ export function LoginPage({
   signupRole,
 }: LoginPageProps) {
   const {
-    signInWithPassword,
-    signUpWithPassword,
     signInWithGoogle,
     hasSupabaseCredentials,
     isAuthenticated,
     isLoading: authLoading,
   } = useAuth();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  /** Shown when Google returns ?code= but PKCE didn’t complete (e.g. started OAuth on another origin). */
-  const [oauthReturnWithoutSession, setOauthReturnWithoutSession] =
-    useState(false);
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"signin" | "signup">(() =>
+    signupRole === "student" || signupRole === "volunteer"
+      ? "signup"
+      : "signin",
+  );
+  const oauthReturnWithoutSession = useMemo(() => {
+    if (authLoading || isAuthenticated) return false;
+    return Boolean(new URLSearchParams(window.location.search).get("code"));
+  }, [authLoading, isAuthenticated]);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const safeRedirectTo = useMemo(
     () => (redirectTo.startsWith("/login") ? "/" : redirectTo),
     [redirectTo],
@@ -43,7 +42,7 @@ export function LoginPage({
     const sp = new URLSearchParams(window.location.search);
     if (!sp.get("code")) return;
     void supabase.auth.getSession();
-  }, []);
+  }, [hasSupabaseCredentials]);
 
   /**
    * After OAuth, strip ?code= / ?state= from the address bar and sync App’s in-memory URL.
@@ -72,53 +71,6 @@ export function LoginPage({
     }
   }, [isAuthenticated, onNavigate, safeRedirectTo]);
 
-  useEffect(() => {
-    if (authLoading) return;
-    if (isAuthenticated) {
-      setOauthReturnWithoutSession(false);
-      return;
-    }
-    const sp = new URLSearchParams(window.location.search);
-    setOauthReturnWithoutSession(Boolean(sp.get("code")));
-  }, [authLoading, isAuthenticated]);
-
-  useEffect(() => {
-    if (signupRole === "student" || signupRole === "volunteer") {
-      setMode("signup");
-    }
-  }, [signupRole]);
-
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setMessage(null);
-    setIsSubmitting(true);
-
-    const nextError =
-      mode === "signin"
-        ? await signInWithPassword(email, password)
-        : await signUpWithPassword(email, password, fullName, {
-            signupRole: signupRole ?? "teacher",
-          });
-
-    setIsSubmitting(false);
-
-    if (nextError) {
-      setError(nextError);
-      return;
-    }
-
-    if (mode === "signup") {
-      setMessage(
-        "Account created. If email confirmation is enabled, check your inbox before signing in.",
-      );
-      setMode("signin");
-      return;
-    }
-
-    onNavigate(safeRedirectTo);
-  }
-
   async function handleGoogleSignIn() {
     setError(null);
     setMessage(null);
@@ -144,12 +96,12 @@ export function LoginPage({
         {oauthReturnWithoutSession && (
           <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
             <strong>Google sign-in didn’t finish on this site.</strong> PKCE
-            needs the same browser session on <strong>one</strong> origin:
-            start and finish &quot;Continue with Google&quot; on{" "}
+            needs the same browser session on <strong>one</strong> origin: start
+            and finish &quot;Continue with Google&quot; on{" "}
             <strong>{window.location.origin}</strong> only (don’t mix localhost
-            and production in one attempt). Also add this origin under
-            Supabase → Authentication → URL Configuration → Redirect URLs. Try
-            Google again—or use email and password below.
+            and production in one attempt). Also add this origin under Supabase
+            → Authentication → URL Configuration → Redirect URLs. Try Google
+            again—or try from another browser window.
           </p>
         )}
         {isAuthenticated && (
@@ -186,55 +138,7 @@ export function LoginPage({
           </button>
         </div>
 
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          {mode === "signup" && signupRole === "student" && (
-            <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
-              You&apos;re creating a <strong>student</strong> account to receive
-              event announcements. After confirming email (if required), sign in
-              and tap &quot;Receive student announcements&quot; on the event
-              page.
-            </p>
-          )}
-          {mode === "signup" && signupRole === "volunteer" && (
-            <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
-              You&apos;re creating a <strong>volunteer</strong> account. After
-              signing in, finish subscribing on the event page.
-            </p>
-          )}
-          {mode === "signup" && (
-            <label className="block text-sm font-medium text-slate-700">
-              Full name
-              <input
-                value={fullName}
-                onChange={(event) => setFullName(event.target.value)}
-                type="text"
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Your full name"
-              />
-            </label>
-          )}
-          <label className="block text-sm font-medium text-slate-700">
-            Email
-            <input
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              type="email"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              placeholder="you@school.org"
-              required
-            />
-          </label>
-          <label className="block text-sm font-medium text-slate-700">
-            Password
-            <input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              type="password"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              placeholder="••••••••"
-              required
-            />
-          </label>
+        <div className="mt-6 space-y-4">
           {error && (
             <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
               {error}
@@ -247,35 +151,34 @@ export function LoginPage({
           )}
           {!hasSupabaseCredentials && (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              Supabase credentials are not configured yet. You can still preview
-              role-based flows with the buttons below.
+              Supabase credentials are not configured yet.
             </p>
           )}
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            {isSubmitting
-              ? mode === "signin"
-                ? "Signing in..."
-                : "Creating account..."
-              : mode === "signin"
-                ? "Sign in"
-                : "Create account"}
-          </button>
+          {mode === "signup" && signupRole === "student" && (
+            <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+              You&apos;re creating a <strong>student</strong> account to receive
+              event announcements. After signing in, tap &quot;Receive student
+              announcements&quot; on the event page.
+            </p>
+          )}
+          {mode === "signup" && signupRole === "volunteer" && (
+            <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
+              You&apos;re creating a <strong>volunteer</strong> account. After
+              signing in, finish subscribing on the event page.
+            </p>
+          )}
           <button
             type="button"
             onClick={() => void handleGoogleSignIn()}
             disabled={!hasSupabaseCredentials}
             className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
           >
-            Continue with Google
+            {mode === "signin" ? "Continue with Google" : "Sign up with Google"}
           </button>
           {(signupRole === "student" || signupRole === "volunteer") && (
             <p className="text-center text-xs text-slate-500">
-              Google sign-up defaults to a teacher profile. For a {signupRole}{" "}
-              account, use email + password above.
+              Google sign-up defaults to a teacher profile; ask an admin if you
+              need a {signupRole} role.
             </p>
           )}
           {isAuthenticated && (
@@ -287,7 +190,7 @@ export function LoginPage({
               Continue
             </button>
           )}
-        </form>
+        </div>
       </section>
     </main>
   );

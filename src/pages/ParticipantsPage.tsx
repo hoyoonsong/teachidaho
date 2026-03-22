@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  listActiveEvents,
+  listActiveEventsDetailed,
   type EventRecord,
 } from "../lib/appDataStore";
 
@@ -49,13 +49,35 @@ function statusBadge(event: EventRecord) {
 
 export function ParticipantsPage({ onNavigate }: ParticipantsPageProps) {
   const [activeEvents, setActiveEvents] = useState<EventRecord[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [eventsLoading, setEventsLoading] = useState(false);
 
+  const listBlocking = eventsLoading;
+
+  /**
+   * Mount-only load. Public events are fetched via REST + anon key (see `listActiveEventsDetailed`);
+   * no auth dependency, so we avoid effect churn from `userId` / OAuth timing.
+   */
   useEffect(() => {
+    let cancelled = false;
     async function loadData() {
-      const events = await listActiveEvents();
-      setActiveEvents(events);
+      setEventsLoading(true);
+      setLoadError(null);
+      try {
+        const { events, error } = await listActiveEventsDetailed();
+        if (!cancelled) {
+          setActiveEvents(events);
+          setLoadError(error);
+        }
+      } finally {
+        if (!cancelled) setEventsLoading(false);
+      }
     }
     void loadData();
+    return () => {
+      cancelled = true;
+      setEventsLoading(false);
+    };
   }, []);
 
   const gridClass =
@@ -88,6 +110,24 @@ export function ParticipantsPage({ onNavigate }: ParticipantsPageProps) {
 
       <section className="border-b border-slate-200 bg-slate-50 py-10">
         <div className="mx-auto w-[min(94vw,1280px)] px-4 sm:px-6 lg:px-10">
+          {listBlocking ? (
+            <p className="rounded-2xl border border-dashed border-slate-200 bg-white py-14 text-center text-sm font-medium text-slate-500">
+              Loading events…
+            </p>
+          ) : null}
+          {!listBlocking && loadError ? (
+            <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              <p className="font-semibold">Couldn’t load events from Supabase</p>
+              <p className="mt-1 font-mono text-xs text-amber-900/90">{loadError}</p>
+              <p className="mt-2 text-xs text-amber-900/85">
+                Check the browser Network tab for failed requests to your project
+                URL. Locally: confirm <code className="rounded bg-white/80 px-1">.env.local</code>{" "}
+                has <code className="rounded bg-white/80 px-1">VITE_SUPABASE_*</code> and restart{" "}
+                <code className="rounded bg-white/80 px-1">npm run dev</code>.
+              </p>
+            </div>
+          ) : null}
+          {!listBlocking && (
           <div className={gridClass}>
             {activeEvents.map((event) => {
               const badge = statusBadge(event);
@@ -133,14 +173,22 @@ export function ParticipantsPage({ onNavigate }: ParticipantsPageProps) {
               );
             })}
 
-            {activeEvents.length === 0 && (
-              <p className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-white py-14 text-center text-sm text-slate-500">
-                No active events right now.
-              </p>
+            {activeEvents.length === 0 && !loadError && (
+              <div className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-14 text-center text-sm text-slate-500">
+                <p>No active events right now.</p>
+                <p className="mx-auto mt-3 max-w-md text-xs leading-relaxed text-slate-400">
+                  Events appear here when an admin sets them to{" "}
+                  <strong>Published</strong>, <strong>Active</strong>, or{" "}
+                  <strong>Closed</strong> and leaves them <strong>public</strong>.
+                  Draft or private events stay hidden.
+                </p>
+              </div>
             )}
           </div>
+          )}
         </div>
       </section>
     </main>
   );
 }
+

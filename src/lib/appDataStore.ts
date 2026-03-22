@@ -381,6 +381,92 @@ export async function listActiveEvents() {
   }, async () => []);
 }
 
+/**
+ * Same query as {@link listActiveEvents} but surfaces errors instead of returning an empty list.
+ * Use on the Participants hub so users can tell “failed to load” from “no events yet”.
+ *
+ * **Implementation note:** Uses `fetch` against PostgREST with the **anon key**, not the JS
+ * client’s `.from().select()`. After OAuth we’ve seen the Supabase client’s request path hang
+ * indefinitely (auth/refresh/mutex), while a plain REST GET with the anon JWT completes. RLS
+ * for public events allows this read without a user session.
+ */
+export async function listActiveEventsDetailed(): Promise<{
+  events: EventRecord[];
+  error: string | null;
+}> {
+  const baseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(
+    /\/$/,
+    "",
+  );
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+  if (!baseUrl || !anonKey) {
+    return {
+      events: [],
+      error:
+        "Supabase isn’t configured in this build. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local (dev) or Vercel env (production), then restart the dev server or redeploy.",
+    };
+  }
+
+  const select =
+    "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings";
+  const params = new URLSearchParams({ select });
+  const query = `${params.toString()}&status=in.(published,active,closed)&is_public=eq.true&order=start_date.asc`;
+  const url = `${baseUrl}/rest/v1/events?${query}`;
+
+  const ac = new AbortController();
+  const timeoutMs = 25_000;
+  const timeoutId = window.setTimeout(() => ac.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+        Accept: "application/json",
+      },
+      signal: ac.signal,
+    });
+
+    const raw = await res.text();
+    if (!res.ok) {
+      let detail = raw.slice(0, 500);
+      try {
+        const j = JSON.parse(raw) as { message?: string };
+        if (typeof j?.message === "string") detail = j.message;
+      } catch {
+        /* use raw */
+      }
+      return {
+        events: [],
+        error: `HTTP ${res.status}${detail ? `: ${detail}` : ""}`,
+      };
+    }
+
+    let rows: EventRow[];
+    try {
+      rows = JSON.parse(raw) as EventRow[];
+    } catch {
+      return { events: [], error: "Invalid JSON from events API." };
+    }
+    if (!Array.isArray(rows)) {
+      return { events: [], error: "Unexpected events API response shape." };
+    }
+    return { events: rows.map(toEventRecord), error: null };
+  } catch (e) {
+    const aborted = e instanceof DOMException && e.name === "AbortError";
+    const msg = aborted
+      ? `Request timed out after ${Math.round(timeoutMs / 1000)}s. Check the Network tab for the GET to /rest/v1/events.`
+      : e instanceof Error
+        ? e.message
+        : "Could not load events.";
+    return { events: [], error: msg };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export async function createEvent(input: Omit<EventRecord, "id">) {
   return withSupabase(async () => {
     if (!supabase) throw new Error("No supabase");
