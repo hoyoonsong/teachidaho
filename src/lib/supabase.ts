@@ -30,12 +30,15 @@ function getSupabaseClient() {
       detectSessionInUrl: true,
       flowType: "pkce",
       /**
-       * Default Web Locks (navigator.locks) + React 19 dev / double effects + multiple
-       * components calling Supabase at once causes "Lock broken by steal" / orphaned
-       * lock warnings and failed getSession. A no-op lock is fine for a typical
-       * single-tab app; use the default if you need strict multi-tab coordination.
+       * Dev-only: skip navigator.locks to avoid React StrictMode / HMR “lock steal” noise.
+       * Production uses the default lock so PKCE URL handling + getSession stay ordered.
        */
-      lock: async (_name, _acquireTimeout, fn) => fn(),
+      ...(import.meta.env.DEV
+        ? {
+            lock: async (_name: string, _acquireTimeout: number, fn: () => Promise<unknown>) =>
+              fn(),
+          }
+        : {}),
     },
   });
   window.__teachIdahoSupabaseClient = client;

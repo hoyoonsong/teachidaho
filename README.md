@@ -71,4 +71,16 @@ export default defineConfig([
   },
 ])
 ```
-# teachidaho
+# Teach Idaho (teachidaho)
+
+Vite + React + Supabase.
+
+## Auth redirects (localhost vs production)
+
+The code uses **`window.location.origin`** for OAuth return URLs—there is no forced redirect to Vercel in the repo.
+
+If Google (or email links) still send you to production while you’re on **localhost**, add both origins in **Supabase → Authentication → URL Configuration → Redirect URLs**. See **[docs/supabase-auth-redirects.md](./docs/supabase-auth-redirects.md)**.
+
+## Env
+
+Copy `.env.example` → `.env.local` for dev. For Vercel, set the same `VITE_*` variables in the project settings (see comments in `.env.example`).

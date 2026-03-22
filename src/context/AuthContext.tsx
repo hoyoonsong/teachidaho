@@ -168,13 +168,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
     async function bootstrap() {
       try {
-        const sessionResult = await withNetworkRetries(
+        /**
+         * Finish OAuth/PKCE URL handling before getSession (constructor starts this async;
+         * awaiting avoids races with our first getSession).
+         */
+        const initRes = await supabaseClient.auth.initialize();
+        if (initRes?.error) {
+          console.warn(
+            "[TeachIdaho] Supabase auth initialize:",
+            initRes.error.message,
+          );
+        }
+
+        let sessionResult = await withNetworkRetries(
           () => supabaseClient.auth.getSession(),
           { retries: 5, delayMs: 400 },
         );
-        if (!active) return;
+        let nextSession = sessionResult.data.session;
 
-        const nextSession = sessionResult.data.session;
+        /**
+         * If the URL still has ?code= but there’s no session, PKCE didn’t run (common:
+         * sign-in started on another origin, e.g. localhost, callback on Vercel — verifier
+         * is in localStorage per-origin). Try explicit exchange once for clearer errors.
+         */
+        if (
+          !nextSession &&
+          typeof window !== "undefined" &&
+          window.location.search.includes("code=")
+        ) {
+          const code = new URLSearchParams(window.location.search).get("code");
+          if (code) {
+            const exchanged =
+              await supabaseClient.auth.exchangeCodeForSession(code);
+            if (exchanged.error) {
+              console.warn(
+                "[TeachIdaho] OAuth code exchange failed. Start and finish “Continue with Google” on the same origin you’re on now (see docs/supabase-auth-redirects.md):",
+                exchanged.error.message,
+              );
+            } else {
+              nextSession = exchanged.data.session;
+            }
+          }
+        }
+
+        if (!active) return;
 
         setSession(nextSession);
         await resolveRoleFromSession(nextSession);
@@ -296,10 +333,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const role = options?.signupRole ?? "teacher";
+      /** Use current tab origin so confirm links aren’t tied to Supabase “Site URL” (often localhost in dev). */
+      const emailRedirectTo = `${window.location.origin}/login`;
       const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
+          emailRedirectTo,
           data: {
             full_name: fullName?.trim() || undefined,
             signup_role: role,

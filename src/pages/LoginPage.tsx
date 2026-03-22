@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { hasSupabaseCredentials, supabase } from "../lib/supabase";
 
 type LoginPageProps = {
   onNavigate: (to: string) => void;
@@ -19,8 +20,12 @@ export function LoginPage({
     signInWithGoogle,
     hasSupabaseCredentials,
     isAuthenticated,
+    isLoading: authLoading,
   } = useAuth();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  /** Shown when Google returns ?code= but PKCE didn’t complete (e.g. started OAuth on another origin). */
+  const [oauthReturnWithoutSession, setOauthReturnWithoutSession] =
+    useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -32,11 +37,50 @@ export function LoginPage({
     [redirectTo],
   );
 
+  /** Nudge PKCE exchange when Google redirects back with ?code= (detectSessionInUrl + getSession). */
+  useEffect(() => {
+    if (!hasSupabaseCredentials || !supabase) return;
+    const sp = new URLSearchParams(window.location.search);
+    if (!sp.get("code")) return;
+    void supabase.auth.getSession();
+  }, []);
+
+  /**
+   * After OAuth, strip ?code= / ?state= from the address bar and sync App’s in-memory URL.
+   * Otherwise the SPA can keep showing a long login URL even though you’re signed in.
+   */
+  useEffect(() => {
+    if (!hasSupabaseCredentials || !supabase) return;
+    if (!isAuthenticated) return;
+    const sp = new URLSearchParams(window.location.search);
+    if (!sp.get("code") && !sp.get("state")) return;
+
+    const u = new URL(window.location.href);
+    u.searchParams.delete("code");
+    u.searchParams.delete("state");
+    const qs = u.searchParams.toString();
+    const clean = `${u.pathname}${qs ? `?${qs}` : ""}${u.hash}`;
+    const cur = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (clean !== cur) {
+      onNavigate(clean);
+    }
+  }, [hasSupabaseCredentials, isAuthenticated, onNavigate]);
+
   useEffect(() => {
     if (isAuthenticated) {
       onNavigate(safeRedirectTo);
     }
   }, [isAuthenticated, onNavigate, safeRedirectTo]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (isAuthenticated) {
+      setOauthReturnWithoutSession(false);
+      return;
+    }
+    const sp = new URLSearchParams(window.location.search);
+    setOauthReturnWithoutSession(Boolean(sp.get("code")));
+  }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
     if (signupRole === "student" || signupRole === "volunteer") {
@@ -97,6 +141,17 @@ export function LoginPage({
           Teachers, students, volunteers, and admins can use the same login.
           Access to routes and tools is controlled by role.
         </p>
+        {oauthReturnWithoutSession && (
+          <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            <strong>Google sign-in didn’t finish on this site.</strong> PKCE
+            needs the same browser session on <strong>one</strong> origin:
+            start and finish &quot;Continue with Google&quot; on{" "}
+            <strong>{window.location.origin}</strong> only (don’t mix localhost
+            and production in one attempt). Also add this origin under
+            Supabase → Authentication → URL Configuration → Redirect URLs. Try
+            Google again—or use email and password below.
+          </p>
+        )}
         {isAuthenticated && (
           <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
             You are currently signed in.
