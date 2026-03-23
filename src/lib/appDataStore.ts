@@ -1,9 +1,17 @@
 import type { UserRole } from "../types/auth";
-import type { DynamicFormDefinition, FormSubmissionPayload } from "../types/forms";
+import type {
+  DynamicFormDefinition,
+  FormSubmissionPayload,
+} from "../types/forms";
 import { withNetworkRetries } from "./networkRetry";
 import { hasSupabaseCredentials, supabase } from "./supabase";
 
-export type EventStatus = "draft" | "published" | "active" | "closed" | "archived";
+export type EventStatus =
+  | "draft"
+  | "published"
+  | "active"
+  | "closed"
+  | "archived";
 export type AnnouncementAudience =
   | "public"
   | "teachers"
@@ -77,6 +85,14 @@ export type AdminProfileRecord = {
   createdAt: string;
 };
 
+/** Per-teacher registrations for admin Users page (events that are still public-facing). */
+export type AdminUserEventRegistration = {
+  eventId: string;
+  eventName: string;
+  registrationStatus: "draft" | "submitted" | "approved" | "rejected";
+  eventStatus: EventStatus;
+};
+
 export type FormDefinitionRecord = DynamicFormDefinition & {
   version: number;
   isActive: boolean;
@@ -99,6 +115,8 @@ export type RegistrationDetailRecord = FormSubmissionRecord & {
   teacherNotes: string | null;
   /** Auth user id — one registration per (event_id, teacher_id). */
   teacherId: string;
+  /** Set when soft-deleted from the admin queue; purged after {@link REGISTRATION_SOFT_DELETE_RETENTION_MS}. */
+  deletedAt: string | null;
 };
 
 export type EventMembershipRecord = {
@@ -174,8 +192,19 @@ type RegistrationRow = {
   custom_fields: FormSubmissionPayload;
   submitted_at: string | null;
   created_at: string;
+  deleted_at?: string | null;
   profiles: { email: string } | null;
 };
+
+/** Registrations moved to the admin “recently deleted” bin are purged after this window. */
+export const REGISTRATION_SOFT_DELETE_RETENTION_MS =
+  30 * 24 * 60 * 60 * 1000;
+
+const PUBLIC_PARTICIPANT_EVENT_STATUSES: EventStatus[] = [
+  "published",
+  "active",
+  "closed",
+];
 
 type TeamRow = {
   id: string;
@@ -243,7 +272,8 @@ function toEventRecord(row: EventRow): EventRecord {
     name: row.name,
     additionalInfo: row.summary,
     eventDate:
-      row.custom_settings?.dateLabel ?? formatDateOnly(row.start_date ?? row.end_date),
+      row.custom_settings?.dateLabel ??
+      formatDateOnly(row.start_date ?? row.end_date),
     location: row.location ?? "TBD",
     registrationDeadline: formatDateOnly(row.registration_deadline),
     status: row.status,
@@ -264,7 +294,9 @@ function toAnnouncementRecord(row: AnnouncementRow): AnnouncementRecord {
   };
 }
 
-function toAnnouncementFeedItem(row: AnnouncementRowWithEvent): AnnouncementFeedItem {
+function toAnnouncementFeedItem(
+  row: AnnouncementRowWithEvent,
+): AnnouncementFeedItem {
   const base = toAnnouncementRecord(row);
   return {
     ...base,
@@ -279,7 +311,11 @@ function ensureTeacherRegistrationLayout(
 ): DynamicFormDefinition["fields"] {
   return fields.map((f) => {
     if (f.layout?.mdColSpan != null) return f;
-    if (f.id === "schoolName" || f.id === "teacherName" || f.id === "teacherEmail") {
+    if (
+      f.id === "schoolName" ||
+      f.id === "teacherName" ||
+      f.id === "teacherEmail"
+    ) {
       return { ...f, layout: { mdColSpan: 1 as const } };
     }
     if (f.id === "notes" || f.type === "textarea") {
@@ -296,9 +332,12 @@ function ensureTeacherRegistrationLayout(
 export function normalizeParticipantRegistrationForm(
   form: FormDefinitionRecord,
 ): FormDefinitionRecord {
-  let fields = form.fields.filter((f) => !LEGACY_REGISTRATION_FIELD_IDS.has(f.id));
+  let fields = form.fields.filter(
+    (f) => !LEGACY_REGISTRATION_FIELD_IDS.has(f.id),
+  );
   const looksLikeTeacherReg =
-    fields.some((f) => f.id === "schoolName") && fields.some((f) => f.id === "teacherEmail");
+    fields.some((f) => f.id === "schoolName") &&
+    fields.some((f) => f.id === "teacherEmail");
   if (looksLikeTeacherReg) {
     fields = ensureTeacherRegistrationLayout(fields);
   }
@@ -319,27 +358,40 @@ function toFormDefinitionRecord(row: FormDefinitionRow): FormDefinitionRecord {
   };
 }
 
-function toSubmissionStatus(status: RegistrationRow["status"]): SubmissionStatus {
+function toSubmissionStatus(
+  status: RegistrationRow["status"],
+): SubmissionStatus {
   if (status === "approved") return "accepted";
   if (status === "rejected") return "rejected";
   return "pending";
 }
 
-function fromSubmissionStatus(status: SubmissionStatus): RegistrationRow["status"] {
+function fromSubmissionStatus(
+  status: SubmissionStatus,
+): RegistrationRow["status"] {
   if (status === "accepted") return "approved";
   if (status === "rejected") return "rejected";
   return "submitted";
 }
 
-async function withSupabase<T>(query: () => Promise<T>, fallback: () => T | Promise<T>) {
+async function withSupabase<T>(
+  query: () => Promise<T>,
+  fallback: () => T | Promise<T>,
+) {
   if (!hasSupabaseCredentials || !supabase) {
     return await fallback();
   }
   try {
-    return await withNetworkRetries(() => query(), { retries: 4, delayMs: 350 });
+    return await withNetworkRetries(() => query(), {
+      retries: 4,
+      delayMs: 350,
+    });
   } catch (error) {
     if (import.meta.env.DEV) {
-      console.warn("Supabase query failed after retries, returning fallback.", error);
+      console.warn(
+        "Supabase query failed after retries, returning fallback.",
+        error,
+      );
     }
     return await fallback();
   }
@@ -349,55 +401,18 @@ function fallbackEvents(): EventRecord[] {
   return [];
 }
 
-export async function listEvents() {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("events")
-      .select(
-        "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
-      )
-      .order("created_at", { ascending: false })
-      .returns<EventRow[]>();
-    if (error) throw error;
-    return (data ?? []).map(toEventRecord);
-  }, fallbackEvents);
-}
-
-export async function listActiveEvents() {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("events")
-      .select(
-        "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
-      )
-      .in("status", ["published", "active", "closed"])
-      .eq("is_public", true)
-      .order("start_date", { ascending: true })
-      .returns<EventRow[]>();
-    if (error) throw error;
-    return (data ?? []).map(toEventRecord);
-  }, async () => []);
-}
-
 /**
- * Same query as {@link listActiveEvents} but surfaces errors instead of returning an empty list.
- * Use on the Participants hub so users can tell “failed to load” from “no events yet”.
- *
- * **Implementation note:** Uses `fetch` against PostgREST with the **anon key**, not the JS
- * client’s `.from().select()`. After OAuth we’ve seen the Supabase client’s request path hang
- * indefinitely (auth/refresh/mutex), while a plain REST GET with the anon JWT completes. RLS
- * for public events allows this read without a user session.
+ * Load public, participant-visible events via PostgREST + anon JWT (same path as the Participants hub).
+ * Avoids the authenticated Supabase client path that can hang after OAuth while still matching RLS
+ * for anonymous reads (`is_public` + status in published/active/closed).
  */
-export async function listActiveEventsDetailed(): Promise<{
+async function fetchPublicEventsCatalogViaRest(): Promise<{
   events: EventRecord[];
   error: string | null;
 }> {
-  const baseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(
-    /\/$/,
-    "",
-  );
+  const baseUrl = (
+    import.meta.env.VITE_SUPABASE_URL as string | undefined
+  )?.replace(/\/$/, "");
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
   if (!baseUrl || !anonKey) {
@@ -467,55 +482,173 @@ export async function listActiveEventsDetailed(): Promise<{
   }
 }
 
-export async function createEvent(input: Omit<EventRecord, "id">) {
+async function purgeExpiredSoftDeletedRegistrations(): Promise<void> {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const cutoff = new Date(
+        Date.now() - REGISTRATION_SOFT_DELETE_RETENTION_MS,
+      ).toISOString();
+      const { error } = await supabase
+        .from("registrations")
+        .delete()
+        .not("deleted_at", "is", null)
+        .lt("deleted_at", cutoff);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
+}
+
+export async function listEvents() {
   return withSupabase(async () => {
     if (!supabase) throw new Error("No supabase");
-    const legacyInput = input as Omit<EventRecord, "id"> & {
-      summary?: string;
-      dateLabel?: string;
-    };
-    const additionalInfo = (legacyInput.additionalInfo ?? legacyInput.summary ?? "").trim();
-    const eventDate =
-      legacyInput.eventDate ??
-      legacyInput.dateLabel ??
-      new Date().toISOString().slice(0, 10);
-    const registrationDate = legacyInput.registrationDeadline ?? eventDate;
-    const registrationDeadline = `${registrationDate}T23:59:00Z`;
     const { data, error } = await supabase
       .from("events")
-      .insert({
-        name: legacyInput.name,
-        slug: makeSlug(legacyInput.name),
-        summary: additionalInfo,
-        location: legacyInput.location,
-        start_date: eventDate,
-        end_date: eventDate,
-        registration_deadline: registrationDeadline,
-        status: legacyInput.status,
-        custom_settings: {},
-      })
       .select(
         "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
       )
-      .single<EventRow>();
+      .order("created_at", { ascending: false })
+      .returns<EventRow[]>();
     if (error) throw error;
-    return toEventRecord(data);
-  }, async () => ({
-    ...input,
-    id: crypto.randomUUID(),
-    scoreboardVisibleToParticipants: true,
-  }));
+    return (data ?? []).map(toEventRecord);
+  }, fallbackEvents);
+}
+
+export async function listActiveEvents() {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("events")
+        .select(
+          "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
+        )
+        .in("status", PUBLIC_PARTICIPANT_EVENT_STATUSES)
+        .eq("is_public", true)
+        .order("start_date", { ascending: true })
+        .returns<EventRow[]>();
+      if (error) throw error;
+      return (data ?? []).map(toEventRecord);
+    },
+    async () => [],
+  );
+}
+
+/**
+ * Events teachers may see on the registration page: same visibility as the Participants hub
+ * (`published`, `active`, or `closed`, and public). Eligibility to **start** a new registration
+ * is still gated client-side by the registration deadline; closed events remain listed so
+ * teachers with a registration on file can open them.
+ *
+ * Uses the same REST + anon-key fetch as {@link listActiveEventsDetailed} when possible so
+ * the dropdown still loads if the authenticated Supabase client misbehaves after sign-in.
+ */
+export async function listTeacherRegistrationEvents() {
+  const { events, error } = await fetchPublicEventsCatalogViaRest();
+  if (!error) {
+    return events;
+  }
+  if (import.meta.env.DEV) {
+    console.warn(
+      "listTeacherRegistrationEvents: REST catalog failed, falling back to Supabase client:",
+      error,
+    );
+  }
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error: qerr } = await supabase
+        .from("events")
+        .select(
+          "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
+        )
+        .in("status", PUBLIC_PARTICIPANT_EVENT_STATUSES)
+        .eq("is_public", true)
+        .order("start_date", { ascending: true })
+        .returns<EventRow[]>();
+      if (qerr) throw qerr;
+      return (data ?? []).map(toEventRecord);
+    },
+    async () => [],
+  );
+}
+
+/**
+ * Same query as {@link listActiveEvents} but surfaces errors instead of returning an empty list.
+ * Use on the Participants hub so users can tell “failed to load” from “no events yet”.
+ *
+ * **Implementation note:** Uses `fetch` against PostgREST with the **anon key**, not the JS
+ * client’s `.from().select()`. After OAuth we’ve seen the Supabase client’s request path hang
+ * indefinitely (auth/refresh/mutex), while a plain REST GET with the anon JWT completes. RLS
+ * for public events allows this read without a user session.
+ */
+export async function listActiveEventsDetailed(): Promise<{
+  events: EventRecord[];
+  error: string | null;
+}> {
+  return fetchPublicEventsCatalogViaRest();
+}
+
+export async function createEvent(input: Omit<EventRecord, "id">) {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const legacyInput = input as Omit<EventRecord, "id"> & {
+        summary?: string;
+        dateLabel?: string;
+      };
+      const additionalInfo = (
+        legacyInput.additionalInfo ??
+        legacyInput.summary ??
+        ""
+      ).trim();
+      const eventDate =
+        legacyInput.eventDate ??
+        legacyInput.dateLabel ??
+        new Date().toISOString().slice(0, 10);
+      const registrationDate = legacyInput.registrationDeadline ?? eventDate;
+      const registrationDeadline = `${registrationDate}T23:59:00Z`;
+      const { data, error } = await supabase
+        .from("events")
+        .insert({
+          name: legacyInput.name,
+          slug: makeSlug(legacyInput.name),
+          summary: additionalInfo,
+          location: legacyInput.location,
+          start_date: eventDate,
+          end_date: eventDate,
+          registration_deadline: registrationDeadline,
+          status: legacyInput.status,
+          custom_settings: {},
+        })
+        .select(
+          "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
+        )
+        .single<EventRow>();
+      if (error) throw error;
+      return toEventRecord(data);
+    },
+    async () => ({
+      ...input,
+      id: crypto.randomUUID(),
+      scoreboardVisibleToParticipants: true,
+    }),
+  );
 }
 
 export async function updateEventStatus(eventId: string, status: EventStatus) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { error } = await supabase
-      .from("events")
-      .update({ status })
-      .eq("id", eventId);
-    if (error) throw error;
-  }, async () => undefined);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { error } = await supabase
+        .from("events")
+        .update({ status })
+        .eq("id", eventId);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
 }
 
 export type EventDetailsPatch = {
@@ -527,203 +660,281 @@ export type EventDetailsPatch = {
   status?: EventStatus;
 };
 
-export async function updateEventDetails(eventId: string, patch: EventDetailsPatch) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const updates: Record<string, unknown> = {};
-    if (patch.name !== undefined) {
-      updates.name = patch.name;
-      updates.slug = makeSlug(patch.name);
-    }
-    if (patch.additionalInfo !== undefined) {
-      updates.summary = patch.additionalInfo.trim();
-    }
-    if (patch.location !== undefined) {
-      updates.location = patch.location;
-    }
-    if (patch.eventDate !== undefined) {
-      updates.start_date = patch.eventDate;
-      updates.end_date = patch.eventDate;
-    }
-    if (patch.registrationDeadline !== undefined) {
-      updates.registration_deadline = `${patch.registrationDeadline}T23:59:00Z`;
-    }
-    if (patch.status !== undefined) {
-      updates.status = patch.status;
-    }
-    if (Object.keys(updates).length === 0) return;
-    const { data, error } = await supabase
-      .from("events")
-      .update(updates)
-      .eq("id", eventId)
-      .select(
-        "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
-      )
-      .single<EventRow>();
-    if (error) throw error;
-    return toEventRecord(data);
-  }, async () => null);
+export async function updateEventDetails(
+  eventId: string,
+  patch: EventDetailsPatch,
+) {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const updates: Record<string, unknown> = {};
+      if (patch.name !== undefined) {
+        updates.name = patch.name;
+        updates.slug = makeSlug(patch.name);
+      }
+      if (patch.additionalInfo !== undefined) {
+        updates.summary = patch.additionalInfo.trim();
+      }
+      if (patch.location !== undefined) {
+        updates.location = patch.location;
+      }
+      if (patch.eventDate !== undefined) {
+        updates.start_date = patch.eventDate;
+        updates.end_date = patch.eventDate;
+      }
+      if (patch.registrationDeadline !== undefined) {
+        updates.registration_deadline = `${patch.registrationDeadline}T23:59:00Z`;
+      }
+      if (patch.status !== undefined) {
+        updates.status = patch.status;
+      }
+      if (Object.keys(updates).length === 0) return;
+      const { data, error } = await supabase
+        .from("events")
+        .update(updates)
+        .eq("id", eventId)
+        .select(
+          "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
+        )
+        .single<EventRow>();
+      if (error) throw error;
+      return toEventRecord(data);
+    },
+    async () => null,
+  );
 }
 
-export async function getEventById(eventId: string): Promise<EventRecord | null> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("events")
-      .select(
-        "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
-      )
-      .eq("id", eventId)
-      .maybeSingle<EventRow>();
-    if (error) throw error;
-    if (!data) return null;
-    return toEventRecord(data);
-  }, async () => null);
+export async function getEventById(
+  eventId: string,
+): Promise<EventRecord | null> {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("events")
+        .select(
+          "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
+        )
+        .eq("id", eventId)
+        .maybeSingle<EventRow>();
+      if (error) throw error;
+      if (!data) return null;
+      return toEventRecord(data);
+    },
+    async () => null,
+  );
 }
 
 /** Single event when shown on the public Participants hub (same rules as listActiveEvents). */
 export async function getParticipantVisibleEvent(
   eventId: string,
 ): Promise<EventRecord | null> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("events")
-      .select(
-        "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
-      )
-      .eq("id", eventId)
-      .eq("is_public", true)
-      .in("status", ["published", "active", "closed"])
-      .maybeSingle<EventRow>();
-    if (error) throw error;
-    if (!data) return null;
-    return toEventRecord(data);
-  }, async () => null);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("events")
+        .select(
+          "id,name,summary,location,start_date,end_date,registration_deadline,status,custom_settings",
+        )
+        .eq("id", eventId)
+        .eq("is_public", true)
+        .in("status", PUBLIC_PARTICIPANT_EVENT_STATUSES)
+        .maybeSingle<EventRow>();
+      if (error) throw error;
+      if (!data) return null;
+      return toEventRecord(data);
+    },
+    async () => null,
+  );
 }
 
-export async function saveEventScoreboard(eventId: string, grid: ScoreboardGridState) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data: row, error: readError } = await supabase
-      .from("events")
-      .select("custom_settings")
-      .eq("id", eventId)
-      .single<{ custom_settings: EventCustomSettings | null }>();
-    if (readError) throw readError;
-    const prev = row?.custom_settings ?? {};
-    const nextSettings: EventCustomSettings = {
-      ...prev,
-      scoreboard: grid,
-    };
-    const { error } = await supabase
-      .from("events")
-      .update({ custom_settings: nextSettings })
-      .eq("id", eventId);
-    if (error) throw error;
-  }, async () => undefined);
+export async function saveEventScoreboard(
+  eventId: string,
+  grid: ScoreboardGridState,
+) {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data: row, error: readError } = await supabase
+        .from("events")
+        .select("custom_settings")
+        .eq("id", eventId)
+        .single<{ custom_settings: EventCustomSettings | null }>();
+      if (readError) throw readError;
+      const prev = row?.custom_settings ?? {};
+      const nextSettings: EventCustomSettings = {
+        ...prev,
+        scoreboard: grid,
+      };
+      const { error } = await supabase
+        .from("events")
+        .update({ custom_settings: nextSettings })
+        .eq("id", eventId);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
 }
 
 export async function saveScoreboardParticipantVisibility(
   eventId: string,
   visible: boolean,
 ) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data: row, error: readError } = await supabase
-      .from("events")
-      .select("custom_settings")
-      .eq("id", eventId)
-      .single<{ custom_settings: EventCustomSettings | null }>();
-    if (readError) throw readError;
-    const prev = row?.custom_settings ?? {};
-    const nextSettings: EventCustomSettings = {
-      ...prev,
-      scoreboardVisibleToParticipants: visible,
-    };
-    const { error } = await supabase
-      .from("events")
-      .update({ custom_settings: nextSettings })
-      .eq("id", eventId);
-    if (error) throw error;
-  }, async () => undefined);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data: row, error: readError } = await supabase
+        .from("events")
+        .select("custom_settings")
+        .eq("id", eventId)
+        .single<{ custom_settings: EventCustomSettings | null }>();
+      if (readError) throw readError;
+      const prev = row?.custom_settings ?? {};
+      const nextSettings: EventCustomSettings = {
+        ...prev,
+        scoreboardVisibleToParticipants: visible,
+      };
+      const { error } = await supabase
+        .from("events")
+        .update({ custom_settings: nextSettings })
+        .eq("id", eventId);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
 }
 
 export async function listRegistrationsForEvent(
   eventId: string,
 ): Promise<RegistrationDetailRecord[]> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("registrations")
-      .select(
-        "id,event_id,teacher_id,status,school_name,class_name,teacher_notes,custom_fields,submitted_at,created_at,profiles(email)",
-      )
-      .eq("event_id", eventId)
-      .order("created_at", { ascending: false })
-      .returns<RegistrationRow[]>();
-    if (error) throw error;
+  await purgeExpiredSoftDeletedRegistrations();
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("registrations")
+        .select(
+          "id,event_id,teacher_id,status,school_name,class_name,teacher_notes,custom_fields,submitted_at,created_at,deleted_at,profiles(email)",
+        )
+        .eq("event_id", eventId)
+        .is("deleted_at", null)
+        .in("status", ["submitted", "approved", "rejected"])
+        .order("created_at", { ascending: false })
+        .returns<RegistrationRow[]>();
+      if (error) throw error;
 
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      formDefinitionId: "teacher-registration",
-      eventId: row.event_id,
-      submittedBy: row.profiles?.email ?? row.teacher_id,
-      payload: row.custom_fields,
-      status: toSubmissionStatus(row.status),
-      createdAt: row.created_at,
-      schoolName: row.school_name,
-      className: row.class_name,
-      teacherNotes: row.teacher_notes,
-      teacherId: row.teacher_id,
-    }));
-  }, async () => []);
+      return (data ?? []).map((row) => ({
+        id: row.id,
+        formDefinitionId: "teacher-registration",
+        eventId: row.event_id,
+        submittedBy: row.profiles?.email ?? row.teacher_id,
+        payload: row.custom_fields,
+        status: toSubmissionStatus(row.status),
+        createdAt: row.created_at,
+        schoolName: row.school_name,
+        className: row.class_name,
+        teacherNotes: row.teacher_notes,
+        teacherId: row.teacher_id,
+        deletedAt: null,
+      }));
+    },
+    async () => [],
+  );
+}
+
+/** Submitted registrations removed from the main queue but not yet permanently purged. */
+export async function listSoftDeletedRegistrationsForEvent(
+  eventId: string,
+): Promise<RegistrationDetailRecord[]> {
+  await purgeExpiredSoftDeletedRegistrations();
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("registrations")
+        .select(
+          "id,event_id,teacher_id,status,school_name,class_name,teacher_notes,custom_fields,submitted_at,created_at,deleted_at,profiles(email)",
+        )
+        .eq("event_id", eventId)
+        .not("deleted_at", "is", null)
+        .in("status", ["submitted", "approved", "rejected"])
+        .order("deleted_at", { ascending: false })
+        .returns<RegistrationRow[]>();
+      if (error) throw error;
+
+      return (data ?? []).map((row) => ({
+        id: row.id,
+        formDefinitionId: "teacher-registration",
+        eventId: row.event_id,
+        submittedBy: row.profiles?.email ?? row.teacher_id,
+        payload: row.custom_fields,
+        status: toSubmissionStatus(row.status),
+        createdAt: row.created_at,
+        schoolName: row.school_name,
+        className: row.class_name,
+        teacherNotes: row.teacher_notes,
+        teacherId: row.teacher_id,
+        deletedAt: row.deleted_at ?? null,
+      }));
+    },
+    async () => [],
+  );
 }
 
 export async function listAnnouncementsForEvent(eventId: string) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("announcements")
-      .select("id,title,body,audience,event_id,created_at,deleted_at")
-      .eq("event_id", eventId)
-      .order("created_at", { ascending: false })
-      .returns<AnnouncementRow[]>();
-    if (error) throw error;
-    return (data ?? []).map(toAnnouncementRecord);
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("announcements")
+        .select("id,title,body,audience,event_id,created_at,deleted_at")
+        .eq("event_id", eventId)
+        .order("created_at", { ascending: false })
+        .returns<AnnouncementRow[]>();
+      if (error) throw error;
+      return (data ?? []).map(toAnnouncementRecord);
+    },
+    async () => [],
+  );
 }
 
-export async function listTeamsForEvent(eventId: string): Promise<EventTeamRow[]> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    type RegRow = {
-      id: string;
-      school_name: string;
-      profiles: { email: string } | null;
-      teams: { id: string; team_name: string }[] | null;
-    };
-    const { data, error } = await supabase
-      .from("registrations")
-      .select("id, school_name, profiles(email), teams(id, team_name)")
-      .eq("event_id", eventId)
-      .returns<RegRow[]>();
-    if (error) throw error;
-    const rows: EventTeamRow[] = [];
-    for (const reg of data ?? []) {
-      const teams = reg.teams ?? [];
-      for (const t of teams) {
-        rows.push({
-          id: t.id,
-          teamName: t.team_name,
-          registrationId: reg.id,
-          schoolName: reg.school_name,
-          teacherEmail: reg.profiles?.email ?? "",
-        });
+export async function listTeamsForEvent(
+  eventId: string,
+): Promise<EventTeamRow[]> {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      type RegRow = {
+        id: string;
+        school_name: string;
+        profiles: { email: string } | null;
+        teams: { id: string; team_name: string }[] | null;
+      };
+      const { data, error } = await supabase
+        .from("registrations")
+        .select("id, school_name, profiles(email), teams(id, team_name)")
+        .eq("event_id", eventId)
+        .is("deleted_at", null)
+        .returns<RegRow[]>();
+      if (error) throw error;
+      const rows: EventTeamRow[] = [];
+      for (const reg of data ?? []) {
+        const teams = reg.teams ?? [];
+        for (const t of teams) {
+          rows.push({
+            id: t.id,
+            teamName: t.team_name,
+            registrationId: reg.id,
+            schoolName: reg.school_name,
+            teacherEmail: reg.profiles?.email ?? "",
+          });
+        }
       }
-    }
-    return rows;
-  }, async () => []);
+      return rows;
+    },
+    async () => [],
+  );
 }
 
 type RosterEntry = { name: string };
@@ -764,7 +975,9 @@ function rosterToMemberNames(roster: unknown): string[] {
   return out;
 }
 
-function toRegistrationTeamRecord(row: RegistrationTeamDbRow): RegistrationTeamRecord {
+function toRegistrationTeamRecord(
+  row: RegistrationTeamDbRow,
+): RegistrationTeamRecord {
   return {
     id: row.id,
     registrationId: row.registration_id,
@@ -778,38 +991,44 @@ function toRegistrationTeamRecord(row: RegistrationTeamDbRow): RegistrationTeamR
  * Ensure the current user has a registration row for this event (draft if new).
  * Required before attaching teams; submitForm later upgrades the same row to submitted.
  */
-export async function ensureTeacherRegistrationDraft(eventId: string): Promise<string | null> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data: authData } = await supabase.auth.getUser();
-    const userId = authData.user?.id;
-    if (!userId || !eventId) return null;
+export async function ensureTeacherRegistrationDraft(
+  eventId: string,
+): Promise<string | null> {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData.user?.id;
+      if (!userId || !eventId) return null;
 
-    const { data: existing, error: exErr } = await supabase
-      .from("registrations")
-      .select("id")
-      .eq("event_id", eventId)
-      .eq("teacher_id", userId)
-      .maybeSingle<{ id: string }>();
-    if (exErr) throw exErr;
-    if (existing) return existing.id;
+      const { data: existing, error: exErr } = await supabase
+        .from("registrations")
+        .select("id")
+        .eq("event_id", eventId)
+        .eq("teacher_id", userId)
+        .is("deleted_at", null)
+        .maybeSingle<{ id: string }>();
+      if (exErr) throw exErr;
+      if (existing) return existing.id;
 
-    const { data, error } = await supabase
-      .from("registrations")
-      .insert({
-        event_id: eventId,
-        teacher_id: userId,
-        status: "draft",
-        school_name: "Pending",
-        class_name: null,
-        teacher_notes: null,
-        custom_fields: {},
-      })
-      .select("id")
-      .single<{ id: string }>();
-    if (error) throw error;
-    return data.id;
-  }, async () => null);
+      const { data, error } = await supabase
+        .from("registrations")
+        .insert({
+          event_id: eventId,
+          teacher_id: userId,
+          status: "draft",
+          school_name: "Pending",
+          class_name: null,
+          teacher_notes: null,
+          custom_fields: {},
+        })
+        .select("id")
+        .single<{ id: string }>();
+      if (error) throw error;
+      return data.id;
+    },
+    async () => null,
+  );
 }
 
 /** Teacher's registration row for one event (form answers in custom_fields). */
@@ -822,113 +1041,134 @@ export type TeacherRegistrationSnapshot = {
 export async function getTeacherRegistrationSnapshot(
   eventId: string,
 ): Promise<TeacherRegistrationSnapshot | null> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data: authData } = await supabase.auth.getUser();
-    const userId = authData.user?.id;
-    if (!userId || !eventId) return null;
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData.user?.id;
+      if (!userId || !eventId) return null;
 
-    const { data, error } = await supabase
-      .from("registrations")
-      .select("id, status, school_name, custom_fields")
-      .eq("event_id", eventId)
-      .eq("teacher_id", userId)
-      .maybeSingle<{
-        id: string;
-        status: TeacherRegistrationSnapshot["status"];
-        school_name: string;
-        custom_fields: FormSubmissionPayload | null;
-      }>();
-    if (error) throw error;
-    if (!data) return null;
-    const custom = (data.custom_fields as FormSubmissionPayload) ?? {};
-    /** Column is source of truth for display (admins edit school_name; submitForm keeps it in sync on save). */
-    const payload: FormSubmissionPayload = {
-      ...custom,
-      schoolName: data.school_name ?? custom.schoolName ?? "",
-    };
-    return {
-      id: data.id,
-      status: data.status,
-      payload,
-    };
-  }, async () => null);
+      const { data, error } = await supabase
+        .from("registrations")
+        .select("id, status, school_name, custom_fields")
+        .eq("event_id", eventId)
+        .eq("teacher_id", userId)
+        .is("deleted_at", null)
+        .maybeSingle<{
+          id: string;
+          status: TeacherRegistrationSnapshot["status"];
+          school_name: string;
+          custom_fields: FormSubmissionPayload | null;
+        }>();
+      if (error) throw error;
+      if (!data) return null;
+      const custom = (data.custom_fields as FormSubmissionPayload) ?? {};
+      /** Column is source of truth for display (admins edit school_name; submitForm keeps it in sync on save). */
+      const payload: FormSubmissionPayload = {
+        ...custom,
+        schoolName: data.school_name ?? custom.schoolName ?? "",
+      };
+      return {
+        id: data.id,
+        status: data.status,
+        payload,
+      };
+    },
+    async () => null,
+  );
 }
 
 export async function listTeamsForRegistration(
   registrationId: string,
 ): Promise<RegistrationTeamRecord[]> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("teams")
-      .select("id,registration_id,team_name,assigned_country,roster")
-      .eq("registration_id", registrationId)
-      .order("created_at", { ascending: true })
-      .returns<RegistrationTeamDbRow[]>();
-    if (error) throw error;
-    return (data ?? []).map(toRegistrationTeamRecord);
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("teams")
+        .select("id,registration_id,team_name,assigned_country,roster")
+        .eq("registration_id", registrationId)
+        .order("created_at", { ascending: true })
+        .returns<RegistrationTeamDbRow[]>();
+      if (error) throw error;
+      return (data ?? []).map(toRegistrationTeamRecord);
+    },
+    async () => [],
+  );
 }
 
 export async function createRegistrationTeam(
   registrationId: string,
   input: { teamLabel: string; memberNamesText: string },
 ): Promise<RegistrationTeamRecord | null> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const label = input.teamLabel.trim();
-    if (!label) throw new Error("Country or team name is required");
-    const roster = memberNamesToRoster(parseMemberNamesText(input.memberNamesText));
-    if (roster.length === 0) {
-      throw new Error("At least one team member name is required");
-    }
-    const { data, error } = await supabase
-      .from("teams")
-      .insert({
-        registration_id: registrationId,
-        team_name: label,
-        assigned_country: label,
-        roster,
-      })
-      .select("id,registration_id,team_name,assigned_country,roster")
-      .single<RegistrationTeamDbRow>();
-    if (error) throw error;
-    return toRegistrationTeamRecord(data);
-  }, async () => null);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const label = input.teamLabel.trim();
+      if (!label) throw new Error("Country or team name is required");
+      const roster = memberNamesToRoster(
+        parseMemberNamesText(input.memberNamesText),
+      );
+      if (roster.length === 0) {
+        throw new Error("At least one team member name is required");
+      }
+      const { data, error } = await supabase
+        .from("teams")
+        .insert({
+          registration_id: registrationId,
+          team_name: label,
+          assigned_country: label,
+          roster,
+        })
+        .select("id,registration_id,team_name,assigned_country,roster")
+        .single<RegistrationTeamDbRow>();
+      if (error) throw error;
+      return toRegistrationTeamRecord(data);
+    },
+    async () => null,
+  );
 }
 
 export async function updateRegistrationTeam(
   teamId: string,
   input: { teamLabel?: string; memberNamesText?: string },
 ): Promise<void> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const updates: Record<string, unknown> = {};
-    if (input.teamLabel !== undefined) {
-      const label = input.teamLabel.trim();
-      updates.team_name = label;
-      updates.assigned_country = label || null;
-    }
-    if (input.memberNamesText !== undefined) {
-      const names = parseMemberNamesText(input.memberNamesText);
-      if (names.length === 0) {
-        throw new Error("At least one team member name is required");
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const updates: Record<string, unknown> = {};
+      if (input.teamLabel !== undefined) {
+        const label = input.teamLabel.trim();
+        updates.team_name = label;
+        updates.assigned_country = label || null;
       }
-      updates.roster = memberNamesToRoster(names);
-    }
-    if (Object.keys(updates).length === 0) return;
-    const { error } = await supabase.from("teams").update(updates).eq("id", teamId);
-    if (error) throw error;
-  }, async () => undefined);
+      if (input.memberNamesText !== undefined) {
+        const names = parseMemberNamesText(input.memberNamesText);
+        if (names.length === 0) {
+          throw new Error("At least one team member name is required");
+        }
+        updates.roster = memberNamesToRoster(names);
+      }
+      if (Object.keys(updates).length === 0) return;
+      const { error } = await supabase
+        .from("teams")
+        .update(updates)
+        .eq("id", teamId);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
 }
 
 export async function deleteRegistrationTeam(teamId: string): Promise<void> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { error } = await supabase.from("teams").delete().eq("id", teamId);
-    if (error) throw error;
-  }, async () => undefined);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { error } = await supabase.from("teams").delete().eq("id", teamId);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
 }
 
 /** Team + school for public participant scoreboard (RPC; no teacher PII). */
@@ -941,20 +1181,26 @@ export type PublicScoreboardTeamRow = {
 export async function listPublicTeamsForEvent(
   eventId: string,
 ): Promise<PublicScoreboardTeamRow[]> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase.rpc("list_teams_for_public_event", {
-      p_event_id: eventId,
-    });
-    if (error) throw error;
-    type RpcRow = { team_id: string; team_name: string; school_name: string };
-    const rows = (data ?? []) as RpcRow[];
-    return rows.map((row) => ({
-      id: row.team_id,
-      teamName: row.team_name,
-      schoolName: row.school_name,
-    }));
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase.rpc(
+        "list_teams_for_public_event",
+        {
+          p_event_id: eventId,
+        },
+      );
+      if (error) throw error;
+      type RpcRow = { team_id: string; team_name: string; school_name: string };
+      const rows = (data ?? []) as RpcRow[];
+      return rows.map((row) => ({
+        id: row.team_id,
+        teamName: row.team_name,
+        schoolName: row.school_name,
+      }));
+    },
+    async () => [],
+  );
 }
 
 export async function updateRegistrationFields(
@@ -965,14 +1211,176 @@ export async function updateRegistrationFields(
     teacher_notes?: string | null;
   },
 ) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { error } = await supabase
-      .from("registrations")
-      .update(patch)
-      .eq("id", registrationId);
-    if (error) throw error;
-  }, async () => undefined);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { error } = await supabase
+        .from("registrations")
+        .update(patch)
+        .eq("id", registrationId);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
+}
+
+export async function deleteRegistration(registrationId: string) {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { error } = await supabase
+        .from("registrations")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", registrationId)
+        .is("deleted_at", null);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
+}
+
+/**
+ * Clear soft-delete so the registration returns to the main admin queue.
+ * If the teacher only has a **draft** row (hidden from the admin queue), that
+ * draft is removed so restore can succeed. A non-deleted **submitted / approved /
+ * rejected** row still blocks restore.
+ *
+ * Intentionally does not use {@link withSupabase}: its catch path would replace
+ * real PostgREST/RLS errors with a generic “requires Supabase” message.
+ */
+export async function restoreDeletedRegistration(
+  registrationId: string,
+): Promise<void> {
+  if (!hasSupabaseCredentials || !supabase) {
+    throw new Error(
+      "Supabase isn’t configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local and restart the dev server.",
+    );
+  }
+  const client = supabase;
+  await withNetworkRetries(
+    async () => {
+      const { data: row, error: readErr } = await client
+        .from("registrations")
+        .select("event_id, teacher_id")
+        .eq("id", registrationId)
+        .not("deleted_at", "is", null)
+        .maybeSingle<{ event_id: string; teacher_id: string }>();
+      if (readErr) throw readErr;
+      if (!row) {
+        throw new Error(
+          "That registration is not in the deleted bin (or it was already purged).",
+        );
+      }
+      /** Same rows the admin “main queue” lists — a real duplicate we must not overwrite. */
+      const { data: filedConflict, error: filedErr } = await client
+        .from("registrations")
+        .select("id")
+        .eq("event_id", row.event_id)
+        .eq("teacher_id", row.teacher_id)
+        .is("deleted_at", null)
+        .in("status", ["submitted", "approved", "rejected"])
+        .maybeSingle<{ id: string }>();
+      if (filedErr) throw filedErr;
+      if (filedConflict) {
+        throw new Error(
+          "Cannot restore: this teacher already has a submitted registration on file for this event. Remove or merge that row first.",
+        );
+      }
+      /**
+       * Auto-remove a scaffold **draft** row (e.g. from visiting the register page after
+       * admin soft-deleted the real submission). Drafts are hidden from the admin queue
+       * but still block the partial unique index until cleared.
+       */
+      const { data: draftRow, error: draftErr } = await client
+        .from("registrations")
+        .select("id")
+        .eq("event_id", row.event_id)
+        .eq("teacher_id", row.teacher_id)
+        .is("deleted_at", null)
+        .eq("status", "draft")
+        .maybeSingle<{ id: string }>();
+      if (draftErr) throw draftErr;
+      if (draftRow) {
+        const { error: removeDraftErr } = await client
+          .from("registrations")
+          .delete()
+          .eq("id", draftRow.id);
+        if (removeDraftErr) throw removeDraftErr;
+      }
+      const { error } = await client
+        .from("registrations")
+        .update({ deleted_at: null })
+        .eq("id", registrationId);
+      if (error) throw error;
+    },
+    { retries: 4, delayMs: 350 },
+  );
+}
+
+/** Hard-delete a registration (e.g. from the admin “recently deleted” bin). Cascades teams. */
+export async function permanentlyDeleteRegistration(
+  registrationId: string,
+): Promise<void> {
+  if (!hasSupabaseCredentials || !supabase) {
+    throw new Error(
+      "Supabase isn’t configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local and restart the dev server.",
+    );
+  }
+  const client = supabase;
+  await withNetworkRetries(
+    async () => {
+      const { error } = await client
+        .from("registrations")
+        .delete()
+        .eq("id", registrationId);
+      if (error) throw error;
+    },
+    { retries: 4, delayMs: 350 },
+  );
+}
+
+/**
+ * Reassign a registration to another event. Fails if that teacher already has a row for the target event.
+ */
+export async function moveRegistrationToEvent(
+  registrationId: string,
+  newEventId: string,
+) {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data: row, error: readErr } = await supabase
+        .from("registrations")
+        .select("teacher_id, event_id")
+        .eq("id", registrationId)
+        .single<{ teacher_id: string; event_id: string }>();
+      if (readErr) throw readErr;
+      if (row.event_id === newEventId) return;
+
+      const { data: taken, error: takeErr } = await supabase
+        .from("registrations")
+        .select("id")
+        .eq("event_id", newEventId)
+        .eq("teacher_id", row.teacher_id)
+        .is("deleted_at", null)
+        .maybeSingle<{ id: string }>();
+      if (takeErr) throw takeErr;
+      if (taken) {
+        throw new Error(
+          "That teacher already has a registration for the selected event. Remove or merge it first.",
+        );
+      }
+
+      const { error } = await supabase
+        .from("registrations")
+        .update({ event_id: newEventId })
+        .eq("id", registrationId);
+      if (error) throw error;
+    },
+    async () => {
+      throw new Error("Move registration requires Supabase");
+    },
+  );
 }
 
 /** Filter announcements the current role is allowed to see (same rules as the global feed). */
@@ -996,17 +1404,22 @@ export function filterAnnouncementsByRole<T extends AnnouncementRecord>(
 export async function listAnnouncementsForRole(
   _role: UserRole | null,
 ): Promise<AnnouncementFeedItem[]> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("announcements")
-      .select("id,title,body,audience,event_id,created_at,deleted_at, events(name)")
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .returns<AnnouncementRowWithEvent[]>();
-    if (error) throw error;
-    return (data ?? []).map(toAnnouncementFeedItem);
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("announcements")
+        .select(
+          "id,title,body,audience,event_id,created_at,deleted_at, events(name)",
+        )
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .returns<AnnouncementRowWithEvent[]>();
+      if (error) throw error;
+      return (data ?? []).map(toAnnouncementFeedItem);
+    },
+    async () => [],
+  );
 }
 
 /** Recent visible announcements for header + /announcements (RLS scopes by role + event registration). */
@@ -1014,164 +1427,200 @@ export async function listAnnouncementFeedForRole(
   _role: UserRole | null,
   limit = 50,
 ): Promise<AnnouncementFeedItem[]> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("announcements")
-      .select("id,title,body,audience,event_id,created_at,deleted_at, events(name)")
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(Math.min(limit, 100))
-      .returns<AnnouncementRowWithEvent[]>();
-    if (error) throw error;
-    return (data ?? []).map(toAnnouncementFeedItem);
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("announcements")
+        .select(
+          "id,title,body,audience,event_id,created_at,deleted_at, events(name)",
+        )
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(Math.min(limit, 100))
+        .returns<AnnouncementRowWithEvent[]>();
+      if (error) throw error;
+      return (data ?? []).map(toAnnouncementFeedItem);
+    },
+    async () => [],
+  );
 }
 
 export async function listAllAnnouncements() {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("announcements")
-      .select("id,title,body,audience,event_id,created_at,deleted_at")
-      .order("created_at", { ascending: false })
-      .returns<AnnouncementRow[]>();
-    if (error) throw error;
-    return (data ?? []).map(toAnnouncementRecord);
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("announcements")
+        .select("id,title,body,audience,event_id,created_at,deleted_at")
+        .order("created_at", { ascending: false })
+        .returns<AnnouncementRow[]>();
+      if (error) throw error;
+      return (data ?? []).map(toAnnouncementRecord);
+    },
+    async () => [],
+  );
 }
 
 export async function createAnnouncement(
   input: Omit<AnnouncementRecord, "id" | "createdAt" | "deletedAt">,
 ) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("announcements")
-      .insert({
-        title: input.title,
-        body: input.body,
-        audience: input.audience,
-        event_id: input.eventId,
-      })
-      .select("id,title,body,audience,event_id,created_at,deleted_at")
-      .single<AnnouncementRow>();
-    if (error) throw error;
-    return toAnnouncementRecord(data);
-  }, async () => ({
-    ...input,
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-    deletedAt: null,
-  }));
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("announcements")
+        .insert({
+          title: input.title,
+          body: input.body,
+          audience: input.audience,
+          event_id: input.eventId,
+        })
+        .select("id,title,body,audience,event_id,created_at,deleted_at")
+        .single<AnnouncementRow>();
+      if (error) throw error;
+      return toAnnouncementRecord(data);
+    },
+    async () => ({
+      ...input,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      deletedAt: null,
+    }),
+  );
 }
 
 export async function updateAnnouncement(
   announcementId: string,
   patch: { title?: string; body?: string; audience?: AnnouncementAudience },
 ) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const updates: Record<string, unknown> = {};
-    if (patch.title !== undefined) updates.title = patch.title;
-    if (patch.body !== undefined) updates.body = patch.body;
-    if (patch.audience !== undefined) updates.audience = patch.audience;
-    if (Object.keys(updates).length === 0) return null;
-    const { data, error } = await supabase
-      .from("announcements")
-      .update(updates)
-      .eq("id", announcementId)
-      .select("id,title,body,audience,event_id,created_at,deleted_at")
-      .single<AnnouncementRow>();
-    if (error) throw error;
-    return toAnnouncementRecord(data);
-  }, async () => null);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const updates: Record<string, unknown> = {};
+      if (patch.title !== undefined) updates.title = patch.title;
+      if (patch.body !== undefined) updates.body = patch.body;
+      if (patch.audience !== undefined) updates.audience = patch.audience;
+      if (Object.keys(updates).length === 0) return null;
+      const { data, error } = await supabase
+        .from("announcements")
+        .update(updates)
+        .eq("id", announcementId)
+        .select("id,title,body,audience,event_id,created_at,deleted_at")
+        .single<AnnouncementRow>();
+      if (error) throw error;
+      return toAnnouncementRecord(data);
+    },
+    async () => null,
+  );
 }
 
 /** Soft-delete; row is removed from participant views until permanently deleted after ~30 days. */
 export async function softDeleteAnnouncement(announcementId: string) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { error } = await supabase
-      .from("announcements")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("id", announcementId);
-    if (error) throw error;
-  }, async () => undefined);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { error } = await supabase
+        .from("announcements")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", announcementId);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
 }
 
 export async function restoreAnnouncement(announcementId: string) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { error } = await supabase
-      .from("announcements")
-      .update({ deleted_at: null })
-      .eq("id", announcementId);
-    if (error) throw error;
-  }, async () => undefined);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { error } = await supabase
+        .from("announcements")
+        .update({ deleted_at: null })
+        .eq("id", announcementId);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
 }
 
 /** Permanently remove announcements soft-deleted more than 30 days ago (run periodically or on admin load). */
 export async function purgeExpiredSoftDeletedAnnouncements(): Promise<number> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
-      .from("announcements")
-      .delete()
-      .not("deleted_at", "is", null)
-      .lt("deleted_at", cutoff)
-      .select("id");
-    if (error) throw error;
-    return (data ?? []).length;
-  }, async () => 0);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const cutoff = new Date(
+        Date.now() - 30 * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      const { data, error } = await supabase
+        .from("announcements")
+        .delete()
+        .not("deleted_at", "is", null)
+        .lt("deleted_at", cutoff)
+        .select("id");
+      if (error) throw error;
+      return (data ?? []).length;
+    },
+    async () => 0,
+  );
 }
 
 /** Admin: hard-delete one announcement (and comments via FK). */
 export async function permanentlyDeleteAnnouncement(announcementId: string) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { error } = await supabase
-      .from("announcements")
-      .delete()
-      .eq("id", announcementId);
-    if (error) throw error;
-  }, async () => undefined);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { error } = await supabase
+        .from("announcements")
+        .delete()
+        .eq("id", announcementId);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
 }
 
 /** Admin: soft-deleted rows for one event (trash). */
 export async function listSoftDeletedAnnouncementsForEvent(
   eventId: string,
 ): Promise<AnnouncementRecord[]> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("announcements")
-      .select("id,title,body,audience,event_id,created_at,deleted_at")
-      .eq("event_id", eventId)
-      .not("deleted_at", "is", null)
-      .order("deleted_at", { ascending: false })
-      .returns<AnnouncementRow[]>();
-    if (error) throw error;
-    return (data ?? []).map(toAnnouncementRecord);
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("announcements")
+        .select("id,title,body,audience,event_id,created_at,deleted_at")
+        .eq("event_id", eventId)
+        .not("deleted_at", "is", null)
+        .order("deleted_at", { ascending: false })
+        .returns<AnnouncementRow[]>();
+      if (error) throw error;
+      return (data ?? []).map(toAnnouncementRecord);
+    },
+    async () => [],
+  );
 }
 
 /** Admin: all soft-deleted announcements (site-wide trash). */
 export async function listSoftDeletedAnnouncementsAll(): Promise<
   AnnouncementFeedItem[]
 > {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("announcements")
-      .select("id,title,body,audience,event_id,created_at,deleted_at, events(name)")
-      .not("deleted_at", "is", null)
-      .order("deleted_at", { ascending: false })
-      .returns<AnnouncementRowWithEvent[]>();
-    if (error) throw error;
-    return (data ?? []).map(toAnnouncementFeedItem);
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("announcements")
+        .select(
+          "id,title,body,audience,event_id,created_at,deleted_at, events(name)",
+        )
+        .not("deleted_at", "is", null)
+        .order("deleted_at", { ascending: false })
+        .returns<AnnouncementRowWithEvent[]>();
+      if (error) throw error;
+      return (data ?? []).map(toAnnouncementFeedItem);
+    },
+    async () => [],
+  );
 }
 
 export type AnnouncementCommentVisibility = "public" | "private";
@@ -1223,19 +1672,22 @@ function toAnnouncementCommentRecord(
 export async function listAnnouncementComments(
   announcementId: string,
 ): Promise<AnnouncementCommentRecord[]> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("announcement_comments")
-      .select(
-        "id, announcement_id, parent_id, author_id, author_email, author_display_name, author_role, body, visibility, created_at",
-      )
-      .eq("announcement_id", announcementId)
-      .order("created_at", { ascending: true })
-      .returns<AnnouncementCommentRow[]>();
-    if (error) throw error;
-    return (data ?? []).map(toAnnouncementCommentRecord);
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("announcement_comments")
+        .select(
+          "id, announcement_id, parent_id, author_id, author_email, author_display_name, author_role, body, visibility, created_at",
+        )
+        .eq("announcement_id", announcementId)
+        .order("created_at", { ascending: true })
+        .returns<AnnouncementCommentRow[]>();
+      if (error) throw error;
+      return (data ?? []).map(toAnnouncementCommentRecord);
+    },
+    async () => [],
+  );
 }
 
 export async function addAnnouncementComment(input: {
@@ -1246,41 +1698,47 @@ export async function addAnnouncementComment(input: {
   /** Must match the signed-in user (RLS enforces author_id = auth.uid()). */
   authorId: string;
 }): Promise<AnnouncementCommentRecord> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    if (!input.authorId.trim()) {
-      throw new Error("Must be signed in to comment");
-    }
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      if (!input.authorId.trim()) {
+        throw new Error("Must be signed in to comment");
+      }
 
-    const { data, error } = await supabase
-      .from("announcement_comments")
-      .insert({
-        announcement_id: input.announcementId,
-        parent_id: input.parentId,
-        author_id: input.authorId,
-        body: input.body.trim(),
-        visibility: input.visibility,
-      })
-      .select(
-        "id, announcement_id, parent_id, author_id, author_email, author_display_name, author_role, body, visibility, created_at",
-      )
-      .single<AnnouncementCommentRow>();
-    if (error) throw error;
-    return toAnnouncementCommentRecord(data);
-  }, async () => {
-    throw new Error("Comments require Supabase");
-  });
+      const { data, error } = await supabase
+        .from("announcement_comments")
+        .insert({
+          announcement_id: input.announcementId,
+          parent_id: input.parentId,
+          author_id: input.authorId,
+          body: input.body.trim(),
+          visibility: input.visibility,
+        })
+        .select(
+          "id, announcement_id, parent_id, author_id, author_email, author_display_name, author_role, body, visibility, created_at",
+        )
+        .single<AnnouncementCommentRow>();
+      if (error) throw error;
+      return toAnnouncementCommentRecord(data);
+    },
+    async () => {
+      throw new Error("Comments require Supabase");
+    },
+  );
 }
 
 export async function deleteAnnouncementComment(commentId: string) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { error } = await supabase
-      .from("announcement_comments")
-      .delete()
-      .eq("id", commentId);
-    if (error) throw error;
-  }, async () => undefined);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { error } = await supabase
+        .from("announcement_comments")
+        .delete()
+        .eq("id", commentId);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
 }
 
 /**
@@ -1290,21 +1748,25 @@ export async function deleteAnnouncementComment(commentId: string) {
 export async function teacherHasSubmittedRegistrationForEvent(
   eventId: string,
 ): Promise<boolean> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth.user?.id;
-    if (!uid) return false;
-    const { data, error } = await supabase
-      .from("registrations")
-      .select("id")
-      .eq("event_id", eventId)
-      .eq("teacher_id", uid)
-      .in("status", ["submitted", "approved"])
-      .maybeSingle();
-    if (error) throw error;
-    return Boolean(data);
-  }, async () => false);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth.user?.id;
+      if (!uid) return false;
+      const { data, error } = await supabase
+        .from("registrations")
+        .select("id")
+        .eq("event_id", eventId)
+        .eq("teacher_id", uid)
+        .is("deleted_at", null)
+        .in("status", ["submitted", "approved"])
+        .maybeSingle();
+      if (error) throw error;
+      return Boolean(data);
+    },
+    async () => false,
+  );
 }
 
 /**
@@ -1334,20 +1796,25 @@ export async function listAnnouncementFeedForEvent(
   role: UserRole | null,
   limit = 40,
 ): Promise<AnnouncementFeedItem[]> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("announcements")
-      .select("id,title,body,audience,event_id,created_at,deleted_at, events(name)")
-      .eq("event_id", eventId)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(Math.min(limit, 80))
-      .returns<AnnouncementRowWithEvent[]>();
-    if (error) throw error;
-    const items = (data ?? []).map(toAnnouncementFeedItem);
-    return filterAnnouncementsByRole(items, role);
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("announcements")
+        .select(
+          "id,title,body,audience,event_id,created_at,deleted_at, events(name)",
+        )
+        .eq("event_id", eventId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(Math.min(limit, 80))
+        .returns<AnnouncementRowWithEvent[]>();
+      if (error) throw error;
+      const items = (data ?? []).map(toAnnouncementFeedItem);
+      return filterAnnouncementsByRole(items, role);
+    },
+    async () => [],
+  );
 }
 
 /** localStorage: user chose “stop receiving” for this event — blocks client auto opt-in until they subscribe again. */
@@ -1357,12 +1824,18 @@ function eventAnnouncementOptOutStorageKey(eventId: string) {
 
 export function isEventAnnouncementLocallyDeclined(eventId: string): boolean {
   if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(eventAnnouncementOptOutStorageKey(eventId)) === "1";
+  return (
+    window.localStorage.getItem(eventAnnouncementOptOutStorageKey(eventId)) ===
+    "1"
+  );
 }
 
 function markEventAnnouncementLocallyDeclined(eventId: string) {
   if (typeof window !== "undefined") {
-    window.localStorage.setItem(eventAnnouncementOptOutStorageKey(eventId), "1");
+    window.localStorage.setItem(
+      eventAnnouncementOptOutStorageKey(eventId),
+      "1",
+    );
   }
 }
 
@@ -1376,76 +1849,88 @@ function clearEventAnnouncementLocallyDeclined(eventId: string) {
 export async function getEventAnnouncementSubscription(
   eventId: string,
 ): Promise<boolean> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data: userData, error: userErr } = await supabase.auth.getUser();
-    if (userErr) throw userErr;
-    const uid = userData.user?.id;
-    if (!uid) return false;
-    const { data, error } = await supabase
-      .from("event_announcement_subscriptions")
-      .select("user_id")
-      .eq("event_id", eventId)
-      .eq("user_id", uid)
-      .maybeSingle();
-    if (error) throw error;
-    return Boolean(data);
-  }, async () => false);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data: userData, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      const uid = userData.user?.id;
+      if (!uid) return false;
+      const { data, error } = await supabase
+        .from("event_announcement_subscriptions")
+        .select("user_id")
+        .eq("event_id", eventId)
+        .eq("user_id", uid)
+        .maybeSingle();
+      if (error) throw error;
+      return Boolean(data);
+    },
+    async () => false,
+  );
 }
 
 export async function subscribeToEventAnnouncements(eventId: string) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data: userData, error: userErr } = await supabase.auth.getUser();
-    if (userErr) throw userErr;
-    const uid = userData.user?.id;
-    if (!uid) throw new Error("Must be signed in");
-    const { error } = await supabase
-      .from("event_announcement_subscriptions")
-      .upsert(
-        { user_id: uid, event_id: eventId },
-        { onConflict: "user_id,event_id" },
-      );
-    if (error) throw error;
-    clearEventAnnouncementLocallyDeclined(eventId);
-  }, async () => {
-    throw new Error("Subscriptions require Supabase");
-  });
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data: userData, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      const uid = userData.user?.id;
+      if (!uid) throw new Error("Must be signed in");
+      const { error } = await supabase
+        .from("event_announcement_subscriptions")
+        .upsert(
+          { user_id: uid, event_id: eventId },
+          { onConflict: "user_id,event_id" },
+        );
+      if (error) throw error;
+      clearEventAnnouncementLocallyDeclined(eventId);
+    },
+    async () => {
+      throw new Error("Subscriptions require Supabase");
+    },
+  );
 }
 
 export async function unsubscribeFromEventAnnouncements(eventId: string) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data: userData, error: userErr } = await supabase.auth.getUser();
-    if (userErr) throw userErr;
-    const uid = userData.user?.id;
-    if (!uid) throw new Error("Must be signed in");
-    const { error } = await supabase
-      .from("event_announcement_subscriptions")
-      .delete()
-      .eq("event_id", eventId)
-      .eq("user_id", uid);
-    if (error) throw error;
-    markEventAnnouncementLocallyDeclined(eventId);
-  }, async () => {
-    throw new Error("Subscriptions require Supabase");
-  });
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data: userData, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      const uid = userData.user?.id;
+      if (!uid) throw new Error("Must be signed in");
+      const { error } = await supabase
+        .from("event_announcement_subscriptions")
+        .delete()
+        .eq("event_id", eventId)
+        .eq("user_id", uid);
+      if (error) throw error;
+      markEventAnnouncementLocallyDeclined(eventId);
+    },
+    async () => {
+      throw new Error("Subscriptions require Supabase");
+    },
+  );
 }
 
 export async function listFormDefinitions() {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("form_definitions")
-      .select(
-        "id,form_key,title,description,event_id,audience,fields,version,is_active",
-      )
-      .eq("scope", "registration")
-      .order("version", { ascending: false })
-      .returns<FormDefinitionRow[]>();
-    if (error) throw error;
-    return (data ?? []).map(toFormDefinitionRecord);
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("form_definitions")
+        .select(
+          "id,form_key,title,description,event_id,audience,fields,version,is_active",
+        )
+        .eq("scope", "registration")
+        .order("version", { ascending: false })
+        .returns<FormDefinitionRow[]>();
+      if (error) throw error;
+      return (data ?? []).map(toFormDefinitionRecord);
+    },
+    async () => [],
+  );
 }
 
 export async function getRegistrationFormForEvent(eventId: string | null) {
@@ -1453,179 +1938,204 @@ export async function getRegistrationFormForEvent(eventId: string | null) {
   const activeDefs = defs.filter((form) => form.isActive);
   const eventSpecific = activeDefs.find((form) => form.eventId === eventId);
   const picked =
-    eventSpecific ?? activeDefs.find((form) => form.key === "teacher-registration") ?? null;
+    eventSpecific ??
+    activeDefs.find((form) => form.key === "teacher-registration") ??
+    null;
   return picked ? normalizeParticipantRegistrationForm(picked) : null;
 }
 
 export async function saveFormDefinition(
   input: Omit<FormDefinitionRecord, "id" | "version">,
 ) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("form_definitions")
-      .insert({
-        event_id: input.eventId,
-        scope: "registration",
-        form_key: input.key,
-        title: input.title,
-        description: input.description ?? null,
-        audience: input.audience,
-        fields: input.fields,
-        version: 1,
-        is_active: input.isActive,
-      })
-      .select(
-        "id,form_key,title,description,event_id,audience,fields,version,is_active",
-      )
-      .single<FormDefinitionRow>();
-    if (error) throw error;
-    return toFormDefinitionRecord(data);
-  }, async () => ({
-    ...input,
-    id: crypto.randomUUID(),
-    version: 1,
-  }));
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("form_definitions")
+        .insert({
+          event_id: input.eventId,
+          scope: "registration",
+          form_key: input.key,
+          title: input.title,
+          description: input.description ?? null,
+          audience: input.audience,
+          fields: input.fields,
+          version: 1,
+          is_active: input.isActive,
+        })
+        .select(
+          "id,form_key,title,description,event_id,audience,fields,version,is_active",
+        )
+        .single<FormDefinitionRow>();
+      if (error) throw error;
+      return toFormDefinitionRecord(data);
+    },
+    async () => ({
+      ...input,
+      id: crypto.randomUUID(),
+      version: 1,
+    }),
+  );
 }
 
 export async function submitForm(
   input: Omit<FormSubmissionRecord, "id" | "createdAt" | "status">,
 ) {
-  return withSupabase<FormSubmissionRecord>(async () => {
-    if (!supabase) throw new Error("No supabase");
+  return withSupabase<FormSubmissionRecord>(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
 
-    const { data: authData } = await supabase.auth.getUser();
-    const userId = authData.user?.id;
-    if (!userId) throw new Error("User must be signed in");
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData.user?.id;
+      if (!userId) throw new Error("User must be signed in");
 
-    const customFields = input.payload;
-    const schoolName = String(customFields.schoolName ?? "Unknown School");
-    const className = null;
-    /** Teacher form notes live in custom_fields only; teacher_notes column is admin-internal. */
-    const { data: existingReg } = await supabase
-      .from("registrations")
-      .select("teacher_notes")
-      .eq("event_id", input.eventId)
-      .eq("teacher_id", userId)
-      .maybeSingle<{ teacher_notes: string | null }>();
+      const customFields = input.payload;
+      const schoolName = String(customFields.schoolName ?? "Unknown School");
+      const className = null;
+      /** Teacher form notes live in custom_fields only; teacher_notes column is admin-internal. */
+      const { data: existingReg } = await supabase
+        .from("registrations")
+        .select("teacher_notes")
+        .eq("event_id", input.eventId)
+        .eq("teacher_id", userId)
+        .is("deleted_at", null)
+        .maybeSingle<{ teacher_notes: string | null }>();
 
-    const { data, error } = await supabase
-      .from("registrations")
-      .upsert(
-        {
-          event_id: input.eventId,
-          teacher_id: userId,
-          status: "submitted",
-          school_name: schoolName,
-          class_name: className,
-          teacher_notes: existingReg?.teacher_notes ?? null,
-          custom_fields: customFields,
-          submitted_at: new Date().toISOString(),
-        },
-        { onConflict: "event_id,teacher_id" },
-      )
-      .select(
-        "id,event_id,teacher_id,status,school_name,class_name,teacher_notes,custom_fields,submitted_at,created_at",
-      )
-      .single<RegistrationRow>();
-    if (error) throw error;
+      const { data, error } = await supabase
+        .from("registrations")
+        .upsert(
+          {
+            event_id: input.eventId,
+            teacher_id: userId,
+            status: "submitted",
+            school_name: schoolName,
+            class_name: className,
+            teacher_notes: existingReg?.teacher_notes ?? null,
+            custom_fields: customFields,
+            submitted_at: new Date().toISOString(),
+          },
+          { onConflict: "event_id,teacher_id" },
+        )
+        .select(
+          "id,event_id,teacher_id,status,school_name,class_name,teacher_notes,custom_fields,submitted_at,created_at",
+        )
+        .single<RegistrationRow>();
+      if (error) throw error;
 
-    return {
-      id: data.id,
-      formDefinitionId: input.formDefinitionId,
-      eventId: data.event_id as string | null,
-      submittedBy: input.submittedBy,
-      payload: data.custom_fields,
-      status: toSubmissionStatus(data.status),
-      createdAt: data.created_at,
-    };
-  }, async () => ({
-    ...input,
-    id: crypto.randomUUID(),
-    status: "pending" as SubmissionStatus,
-    createdAt: new Date().toISOString(),
-  }));
+      return {
+        id: data.id,
+        formDefinitionId: input.formDefinitionId,
+        eventId: data.event_id as string | null,
+        submittedBy: input.submittedBy,
+        payload: data.custom_fields,
+        status: toSubmissionStatus(data.status),
+        createdAt: data.created_at,
+      };
+    },
+    async () => ({
+      ...input,
+      id: crypto.randomUUID(),
+      status: "pending" as SubmissionStatus,
+      createdAt: new Date().toISOString(),
+    }),
+  );
 }
 
 export async function listFormSubmissions() {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("registrations")
-      .select(
-        "id,event_id,teacher_id,status,school_name,class_name,teacher_notes,custom_fields,submitted_at,created_at,profiles(email)",
-      )
-      .order("created_at", { ascending: false })
-      .returns<RegistrationRow[]>();
-    if (error) throw error;
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("registrations")
+        .select(
+          "id,event_id,teacher_id,status,school_name,class_name,teacher_notes,custom_fields,submitted_at,created_at,profiles(email)",
+        )
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .returns<RegistrationRow[]>();
+      if (error) throw error;
 
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      formDefinitionId: "teacher-registration",
-      eventId: row.event_id,
-      submittedBy: row.profiles?.email ?? row.teacher_id,
-      payload: row.custom_fields,
-      status: toSubmissionStatus(row.status),
-      createdAt: row.created_at,
-    }));
-  }, async () => []);
+      return (data ?? []).map((row) => ({
+        id: row.id,
+        formDefinitionId: "teacher-registration",
+        eventId: row.event_id,
+        submittedBy: row.profiles?.email ?? row.teacher_id,
+        payload: row.custom_fields,
+        status: toSubmissionStatus(row.status),
+        createdAt: row.created_at,
+      }));
+    },
+    async () => [],
+  );
 }
 
 export async function updateSubmissionStatus(
   submissionId: string,
   status: SubmissionStatus,
 ) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { error } = await supabase
-      .from("registrations")
-      .update({
-        status: fromSubmissionStatus(status),
-        reviewed_at: new Date().toISOString(),
-      })
-      .eq("id", submissionId);
-    if (error) throw error;
-  }, async () => undefined);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { error } = await supabase
+        .from("registrations")
+        .update({
+          status: fromSubmissionStatus(status),
+          reviewed_at: new Date().toISOString(),
+        })
+        .eq("id", submissionId);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
 }
 
 export async function listMemberships() {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("registrations")
-      .select("id,event_id,teacher_id,created_at,status")
-      .eq("status", "approved");
-    if (error) throw error;
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      eventId: row.event_id,
-      personIdentifier: row.teacher_id,
-      sourceSubmissionId: row.id,
-      createdAt: row.created_at,
-    }));
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("registrations")
+        .select("id,event_id,teacher_id,created_at,status")
+        .eq("status", "approved")
+        .is("deleted_at", null);
+      if (error) throw error;
+      return (data ?? []).map((row) => ({
+        id: row.id,
+        eventId: row.event_id,
+        personIdentifier: row.teacher_id,
+        sourceSubmissionId: row.id,
+        createdAt: row.created_at,
+      }));
+    },
+    async () => [],
+  );
 }
 
 export async function listScores() {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("teams")
-      .select("id,registration_id,team_name,score,ranking_note,created_at,registrations(event_id)")
-      .not("score", "is", null)
-      .order("created_at", { ascending: false })
-      .returns<TeamRow[]>();
-    if (error) throw error;
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("teams")
+        .select(
+          "id,registration_id,team_name,score,ranking_note,created_at,registrations(event_id)",
+        )
+        .not("score", "is", null)
+        .order("created_at", { ascending: false })
+        .returns<TeamRow[]>();
+      if (error) throw error;
 
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      eventId: row.registrations?.event_id ?? "",
-      teamName: row.team_name,
-      score: row.score ?? 0,
-      note: row.ranking_note ?? "",
-      createdAt: row.created_at,
-    }));
-  }, async () => []);
+      return (data ?? []).map((row) => ({
+        id: row.id,
+        eventId: row.registrations?.event_id ?? "",
+        teamName: row.team_name,
+        score: row.score ?? 0,
+        note: row.ranking_note ?? "",
+        createdAt: row.created_at,
+      }));
+    },
+    async () => [],
+  );
 }
 
 type ProfileAdminRow = {
@@ -1650,103 +2160,220 @@ function toAdminProfileRecord(row: ProfileAdminRow): AdminProfileRecord {
 
 /** All profiles (admin only via RLS). */
 export async function listAdminProfiles(): Promise<AdminProfileRecord[]> {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id,email,full_name,role,school_name,created_at")
-      .order("created_at", { ascending: false })
-      .returns<ProfileAdminRow[]>();
-    if (error) throw error;
-    return (data ?? []).map(toAdminProfileRecord);
-  }, async () => []);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id,email,full_name,role,school_name,created_at")
+        .order("created_at", { ascending: false })
+        .returns<ProfileAdminRow[]>();
+      if (error) throw error;
+      return (data ?? []).map(toAdminProfileRecord);
+    },
+    async () => [],
+  );
 }
 
 export async function adminSetUserRole(userId: string, role: UserRole) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { error } = await supabase
-      .from("profiles")
-      .update({ role })
-      .eq("id", userId);
-    if (error) throw error;
-  }, async () => undefined);
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { error } = await supabase
+        .from("profiles")
+        .update({ role })
+        .eq("id", userId);
+      if (error) throw error;
+    },
+    async () => undefined,
+  );
+}
+
+/** Event ids the current teacher already has a registration row for (any status). */
+export async function listTeacherRegisteredEventIds(): Promise<string[]> {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data: auth, error: authErr } = await supabase.auth.getUser();
+      if (authErr || !auth.user?.id) return [];
+      const { data, error } = await supabase
+        .from("registrations")
+        .select("event_id")
+        .eq("teacher_id", auth.user.id);
+      if (error) throw error;
+      return [...new Set((data ?? []).map((r) => r.event_id))];
+    },
+    async () => [],
+  );
+}
+
+const FILED_REGISTRATION_STATUSES = [
+  "submitted",
+  "approved",
+  "rejected",
+] as const;
+
+/**
+ * Event ids where the teacher has a **filed** registration (submitted / approved / rejected).
+ * Draft-only rows do not count — used so past-deadline events stay available only after submit.
+ */
+export async function listTeacherFiledRegistrationEventIds(): Promise<
+  string[]
+> {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data: auth, error: authErr } = await supabase.auth.getUser();
+      if (authErr || !auth.user?.id) return [];
+      const { data, error } = await supabase
+        .from("registrations")
+        .select("event_id")
+        .eq("teacher_id", auth.user.id)
+        .is("deleted_at", null)
+        .in("status", [...FILED_REGISTRATION_STATUSES]);
+      if (error) throw error;
+      return [...new Set((data ?? []).map((r) => r.event_id))];
+    },
+    async () => [],
+  );
+}
+
+type RegistrationWithEventRow = {
+  teacher_id: string;
+  status: "draft" | "submitted" | "approved" | "rejected";
+  events: { id: string; name: string; status: EventStatus } | null;
+};
+
+/**
+ * Map teacher id → their registrations on **published** or **active** events only (admin RLS).
+ * Closed (and other) events are omitted from the Users page expand list.
+ */
+export async function listAdminUsersRegisteredEvents(): Promise<
+  Record<string, AdminUserEventRegistration[]>
+> {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data, error } = await supabase
+        .from("registrations")
+        .select("teacher_id,status,events(id,name,status)")
+        .is("deleted_at", null)
+        .returns<RegistrationWithEventRow[]>();
+      if (error) throw error;
+      const map: Record<string, AdminUserEventRegistration[]> = {};
+      for (const row of data ?? []) {
+        const ev = row.events;
+        if (!ev) continue;
+        if (!["published", "active"].includes(ev.status)) continue;
+        const entry: AdminUserEventRegistration = {
+          eventId: ev.id,
+          eventName: ev.name,
+          registrationStatus: row.status,
+          eventStatus: ev.status,
+        };
+        const list = map[row.teacher_id] ?? (map[row.teacher_id] = []);
+        if (!list.some((x) => x.eventId === entry.eventId)) {
+          list.push(entry);
+        }
+      }
+      for (const k of Object.keys(map)) {
+        map[k]!.sort((a, b) => a.eventName.localeCompare(b.eventName));
+      }
+      return map;
+    },
+    async () => ({}),
+  );
 }
 
 export async function addScore(input: Omit<ScoreRecord, "id" | "createdAt">) {
-  return withSupabase(async () => {
-    if (!supabase) throw new Error("No supabase");
-    const { data: authData } = await supabase.auth.getUser();
-    const userId = authData.user?.id;
-    if (!userId) throw new Error("User must be signed in");
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData.user?.id;
+      if (!userId) throw new Error("User must be signed in");
 
-    const { data: registration, error: regError } = await supabase
-      .from("registrations")
-      .upsert(
-        {
-          event_id: input.eventId,
-          teacher_id: userId,
-          status: "approved",
-          school_name: "Admin Scoring",
-          class_name: null,
-          teacher_notes: "Auto-created for score tracking.",
-          custom_fields: {},
-        },
-        { onConflict: "event_id,teacher_id" },
-      )
-      .select("id")
-      .single<{ id: string }>();
-    if (regError) throw regError;
+      const { data: registration, error: regError } = await supabase
+        .from("registrations")
+        .upsert(
+          {
+            event_id: input.eventId,
+            teacher_id: userId,
+            status: "approved",
+            school_name: "Admin Scoring",
+            class_name: null,
+            teacher_notes: "Auto-created for score tracking.",
+            custom_fields: {},
+          },
+          { onConflict: "event_id,teacher_id" },
+        )
+        .select("id")
+        .single<{ id: string }>();
+      if (regError) throw regError;
 
-    const { data: existingTeam, error: existingTeamError } = await supabase
-      .from("teams")
-      .select("id")
-      .eq("registration_id", registration.id)
-      .eq("team_name", input.teamName)
-      .maybeSingle<{ id: string }>();
-    if (existingTeamError) throw existingTeamError;
-
-    if (existingTeam) {
-      const { data: updated, error: updateError } = await supabase
+      const { data: existingTeam, error: existingTeamError } = await supabase
         .from("teams")
-        .update({ score: input.score, ranking_note: input.note })
-        .eq("id", existingTeam.id)
+        .select("id")
+        .eq("registration_id", registration.id)
+        .eq("team_name", input.teamName)
+        .maybeSingle<{ id: string }>();
+      if (existingTeamError) throw existingTeamError;
+
+      if (existingTeam) {
+        const { data: updated, error: updateError } = await supabase
+          .from("teams")
+          .update({ score: input.score, ranking_note: input.note })
+          .eq("id", existingTeam.id)
+          .select("id,team_name,score,ranking_note,created_at")
+          .single<{
+            id: string;
+            team_name: string;
+            score: number;
+            ranking_note: string | null;
+            created_at: string;
+          }>();
+        if (updateError) throw updateError;
+        return {
+          id: updated.id,
+          eventId: input.eventId,
+          teamName: updated.team_name,
+          score: updated.score,
+          note: updated.ranking_note ?? "",
+          createdAt: updated.created_at,
+        };
+      }
+
+      const { data, error } = await supabase
+        .from("teams")
+        .insert({
+          registration_id: registration.id,
+          team_name: input.teamName,
+          score: input.score,
+          ranking_note: input.note,
+        })
         .select("id,team_name,score,ranking_note,created_at")
-        .single<{ id: string; team_name: string; score: number; ranking_note: string | null; created_at: string }>();
-      if (updateError) throw updateError;
+        .single<{
+          id: string;
+          team_name: string;
+          score: number;
+          ranking_note: string | null;
+          created_at: string;
+        }>();
+      if (error) throw error;
+
       return {
-        id: updated.id,
+        id: data.id,
         eventId: input.eventId,
-        teamName: updated.team_name,
-        score: updated.score,
-        note: updated.ranking_note ?? "",
-        createdAt: updated.created_at,
+        teamName: data.team_name,
+        score: data.score,
+        note: data.ranking_note ?? "",
+        createdAt: data.created_at,
       };
-    }
-
-    const { data, error } = await supabase
-      .from("teams")
-      .insert({
-        registration_id: registration.id,
-        team_name: input.teamName,
-        score: input.score,
-        ranking_note: input.note,
-      })
-      .select("id,team_name,score,ranking_note,created_at")
-      .single<{ id: string; team_name: string; score: number; ranking_note: string | null; created_at: string }>();
-    if (error) throw error;
-
-    return {
-      id: data.id,
-      eventId: input.eventId,
-      teamName: data.team_name,
-      score: data.score,
-      note: data.ranking_note ?? "",
-      createdAt: data.created_at,
-    };
-  }, async () => ({
-    ...input,
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-  }));
+    },
+    async () => ({
+      ...input,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    }),
+  );
 }

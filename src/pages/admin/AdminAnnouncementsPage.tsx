@@ -164,16 +164,19 @@ export function AdminAnnouncementsPage() {
         <p className="mt-2 text-sm leading-relaxed text-slate-600">
           <span className="font-semibold text-slate-800">Public</span> with{" "}
           <em>no</em> event = truly everyone (including signed-out visitors for
-          the feed). <span className="font-semibold text-slate-800">Public</span>{" "}
-          with an <span className="font-semibold text-slate-800">event</span> =
-          everyone who is &quot;in&quot; that event: submitted/approved teacher
+          the feed).{" "}
+          <span className="font-semibold text-slate-800">Public</span> with an{" "}
+          <span className="font-semibold text-slate-800">event</span> = everyone
+          who is &quot;in&quot; that event: submitted/approved teacher
           registrations, or student/volunteer subscriptions. Use role-specific
           audiences when you don&apos;t want cross-role visibility.
         </p>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-900">Create announcement</h2>
+        <h2 className="text-lg font-bold text-slate-900">
+          Create announcement
+        </h2>
         <form className="mt-4 space-y-3" onSubmit={handleSubmit}>
           <input
             required
@@ -213,7 +216,10 @@ export function AdminAnnouncementsPage() {
               <select
                 value={form.eventId}
                 onChange={(event) =>
-                  setForm((current) => ({ ...current, eventId: event.target.value }))
+                  setForm((current) => ({
+                    ...current,
+                    eventId: event.target.value,
+                  }))
                 }
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               >
@@ -319,72 +325,86 @@ export function AdminAnnouncementsPage() {
         ) : null}
       </div>
 
-      <div className="space-y-3">
-        <h2 className="text-lg font-bold text-slate-900">Recently deleted</h2>
-        <p className="text-sm text-slate-600">
-          Restore to show again, or delete forever. Items may be auto-purged
-          after about 30 days in the trash.
-        </p>
-        {trash.map((announcement) => (
-          <article
-            key={announcement.id}
-            className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 shadow-sm"
+      <details className="group space-y-3">
+        <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+          <span
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-slate-400 transition-transform duration-200 group-open:rotate-90"
+            aria-hidden
           >
-            {announcement.deletedAt ? (
-              <p className="mb-2 text-xs font-medium text-amber-950">
-                Auto-purge in ~{daysUntilPurge(announcement.deletedAt)} day(s) if
-                not restored.
-              </p>
-            ) : null}
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">
-                  {announcement.title}
-                </h3>
-                <p className="mt-1 text-xs text-slate-600">
-                  {announcement.audience}
-                  {announcement.eventName
-                    ? ` · ${announcement.eventName}`
-                    : announcement.eventId
-                      ? ` · ${eventLabel(announcement.eventId)}`
-                      : ""}
+            ▸
+          </span>
+          <span>
+            <span className="text-lg font-bold text-slate-900">
+              Recently deleted
+            </span>
+            <span className="mt-1 block text-sm font-normal text-slate-600">
+              Restore to show again, or delete forever. Items may be auto-purged
+              after about 30 days in the trash.
+            </span>
+          </span>
+        </summary>
+        <div className="space-y-3 pt-1">
+          {trash.map((announcement) => (
+            <article
+              key={announcement.id}
+              className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 shadow-sm"
+            >
+              {announcement.deletedAt ? (
+                <p className="mb-2 text-xs font-medium text-amber-950">
+                  Auto-purge in ~{daysUntilPurge(announcement.deletedAt)} day(s)
+                  if not restored.
                 </p>
+              ) : null}
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">
+                    {announcement.title}
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-600">
+                    {announcement.audience}
+                    {announcement.eventName
+                      ? ` · ${announcement.eventName}`
+                      : announcement.eventId
+                        ? ` · ${eventLabel(announcement.eventId)}`
+                        : ""}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busyId === announcement.id}
+                    onClick={() => void handleRestore(announcement.id)}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === announcement.id}
+                    onClick={() => void handlePurgeForever(announcement.id)}
+                    className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"
+                  >
+                    Delete forever
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={busyId === announcement.id}
-                  onClick={() => void handleRestore(announcement.id)}
-                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                >
-                  Restore
-                </button>
-                <button
-                  type="button"
-                  disabled={busyId === announcement.id}
-                  onClick={() => void handlePurgeForever(announcement.id)}
-                  className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"
-                >
-                  Delete forever
-                </button>
+              <div className="mt-2 text-sm opacity-90">
+                <RichTextDisplay content={announcement.body} />
               </div>
-            </div>
-            <div className="mt-2 text-sm opacity-90">
-              <RichTextDisplay content={announcement.body} />
-            </div>
-            <AnnouncementThread
-              announcementId={announcement.id}
-              currentUserId={userId}
-              isAdmin={isAdmin}
-            />
-          </article>
-        ))}
-        {trash.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-            Nothing in the trash.
-          </p>
-        ) : null}
-      </div>
+              <AnnouncementThread
+                announcementId={announcement.id}
+                currentUserId={userId}
+                isAdmin={isAdmin}
+              />
+            </article>
+          ))}
+          {trash.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+              Nothing in the trash.
+            </p>
+          ) : null}
+        </div>
+      </details>
     </div>
   );
 }

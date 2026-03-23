@@ -173,11 +173,11 @@ export function AdminEventAnnouncementsPage({
         </h1>
         <p className="mt-1 text-sm text-slate-600">
           Posts are scoped to this event.{" "}
-          <span className="font-semibold text-slate-800">Public</span> here means
-          all roles who are &quot;in&quot; the event: submitted/approved
+          <span className="font-semibold text-slate-800">Public</span> here
+          means all roles who are &quot;in&quot; the event: submitted/approved
           teachers, subscribed students/volunteers, and admins—not the whole
-          internet. Role-specific audiences are further limited. Deleting is soft
-          (Recently deleted); auto-purge after ~30 days, or Delete forever.
+          internet. Role-specific audiences are further limited. Deleting is
+          soft (Recently deleted); auto-purge after ~30 days, or Delete forever.
         </p>
       </div>
 
@@ -280,115 +280,116 @@ export function AdminEventAnnouncementsPage({
         {announcements
           .filter((a) => !a.deletedAt)
           .map((announcement) => {
-          const isEditing = editingId === announcement.id;
+            const isEditing = editingId === announcement.id;
 
-          return (
-            <article
-              key={announcement.id}
-              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-            >
-              {isEditing && editDraft ? (
-                <div className="space-y-3">
-                  <input
-                    value={editDraft.title}
-                    onChange={(e) =>
-                      setEditDraft((d) =>
-                        d ? { ...d, title: e.target.value } : d,
-                      )
-                    }
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold"
-                  />
-                  <select
-                    value={editDraft.audience}
-                    onChange={(e) =>
-                      setEditDraft((d) =>
-                        d
-                          ? {
-                              ...d,
-                              audience: e.target.value as AnnouncementAudience,
-                            }
-                          : d,
-                      )
-                    }
-                    className="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  >
-                    <option value="public">Public</option>
-                    <option value="teachers">Teachers</option>
-                    <option value="volunteers">Volunteers</option>
-                    <option value="students">Students</option>
-                    <option value="admins">Admins</option>
-                  </select>
-                  <RichTextEditor
-                    value={editDraft.body}
-                    onChange={(html) =>
-                      setEditDraft((d) => (d ? { ...d, body: html } : d))
-                    }
-                    rows={5}
-                    compact
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={busyId === announcement.id}
-                      onClick={() => void handleSaveEdit(announcement.id)}
-                      className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            return (
+              <article
+                key={announcement.id}
+                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                {isEditing && editDraft ? (
+                  <div className="space-y-3">
+                    <input
+                      value={editDraft.title}
+                      onChange={(e) =>
+                        setEditDraft((d) =>
+                          d ? { ...d, title: e.target.value } : d,
+                        )
+                      }
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold"
+                    />
+                    <select
+                      value={editDraft.audience}
+                      onChange={(e) =>
+                        setEditDraft((d) =>
+                          d
+                            ? {
+                                ...d,
+                                audience: e.target
+                                  .value as AnnouncementAudience,
+                              }
+                            : d,
+                        )
+                      }
+                      className="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     >
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingId(null);
-                        setEditDraft(null);
-                      }}
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-bold text-slate-900">
-                        {announcement.title}
-                      </h3>
-                      <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                        {announcement.audience}
-                      </span>
-                    </div>
+                      <option value="public">Public</option>
+                      <option value="teachers">Teachers</option>
+                      <option value="volunteers">Volunteers</option>
+                      <option value="students">Students</option>
+                      <option value="admins">Admins</option>
+                    </select>
+                    <RichTextEditor
+                      value={editDraft.body}
+                      onChange={(html) =>
+                        setEditDraft((d) => (d ? { ...d, body: html } : d))
+                      }
+                      rows={5}
+                      compact
+                    />
                     <div className="flex flex-wrap gap-2">
-                      <PencilIconButton
-                        onClick={() => startEdit(announcement)}
-                        label={`Edit announcement: ${announcement.title}`}
-                      />
                       <button
                         type="button"
                         disabled={busyId === announcement.id}
-                        onClick={() => void handleSoftDelete(announcement.id)}
-                        className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+                        onClick={() => void handleSaveEdit(announcement.id)}
+                        className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                       >
-                        Delete
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingId(null);
+                          setEditDraft(null);
+                        }}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        Cancel
                       </button>
                     </div>
                   </div>
-                  <div className="mt-3 text-sm">
-                    <RichTextDisplay content={announcement.body} />
-                  </div>
-                  <AnnouncementThread
-                    announcementId={announcement.id}
-                    currentUserId={userId}
-                    isAdmin={isAdmin}
-                  />
-                  <p className="mt-2 text-xs text-slate-500">
-                    {new Date(announcement.createdAt).toLocaleString()}
-                  </p>
-                </>
-              )}
-            </article>
-          );
-        })}
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-lg font-bold text-slate-900">
+                          {announcement.title}
+                        </h3>
+                        <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                          {announcement.audience}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <PencilIconButton
+                          onClick={() => startEdit(announcement)}
+                          label={`Edit announcement: ${announcement.title}`}
+                        />
+                        <button
+                          type="button"
+                          disabled={busyId === announcement.id}
+                          onClick={() => void handleSoftDelete(announcement.id)}
+                          className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-3 text-sm">
+                      <RichTextDisplay content={announcement.body} />
+                    </div>
+                    <AnnouncementThread
+                      announcementId={announcement.id}
+                      currentUserId={userId}
+                      isAdmin={isAdmin}
+                    />
+                    <p className="mt-2 text-xs text-slate-500">
+                      {new Date(announcement.createdAt).toLocaleString()}
+                    </p>
+                  </>
+                )}
+              </article>
+            );
+          })}
         {announcements.filter((a) => !a.deletedAt).length === 0 && (
           <p className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
             No active announcements for this event yet. Tap + to add one.
@@ -396,67 +397,75 @@ export function AdminEventAnnouncementsPage({
         )}
       </div>
 
-      <div className="space-y-3 pt-4">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+      <details className="group space-y-3 pt-4">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500 [&::-webkit-details-marker]:hidden">
+          <span
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-slate-400 transition-transform duration-200 group-open:rotate-90"
+            aria-hidden
+          >
+            ▸
+          </span>
           Recently deleted
-        </h2>
-        {announcements
-          .filter((a) => a.deletedAt)
-          .map((announcement) => (
-            <article
-              key={announcement.id}
-              className="rounded-xl border border-amber-300 bg-amber-50/40 p-4 shadow-sm"
-            >
-              {announcement.deletedAt ? (
-                <p className="mb-3 rounded-lg border border-amber-200 bg-amber-100/80 px-3 py-2 text-xs font-medium text-amber-950">
-                  Auto-purge in ~{daysUntilPurge(announcement.deletedAt)}{" "}
-                  day(s), or restore / delete forever.
-                </p>
-              ) : null}
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-lg font-bold text-slate-900">
-                    {announcement.title}
-                  </h3>
-                  <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    {announcement.audience}
-                  </span>
+        </summary>
+        <div className="space-y-3 pt-1">
+          {announcements
+            .filter((a) => a.deletedAt)
+            .map((announcement) => (
+              <article
+                key={announcement.id}
+                className="rounded-xl border border-amber-300 bg-amber-50/40 p-4 shadow-sm"
+              >
+                {announcement.deletedAt ? (
+                  <p className="mb-3 rounded-lg border border-amber-200 bg-amber-100/80 px-3 py-2 text-xs font-medium text-amber-950">
+                    Auto-purge in ~{daysUntilPurge(announcement.deletedAt)}{" "}
+                    day(s), or restore / delete forever.
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-lg font-bold text-slate-900">
+                      {announcement.title}
+                    </h3>
+                    <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      {announcement.audience}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busyId === announcement.id}
+                      onClick={() => void handleRestore(announcement.id)}
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      Restore
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId === announcement.id}
+                      onClick={() => void handlePurgeForever(announcement.id)}
+                      className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"
+                    >
+                      Delete forever
+                    </button>
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={busyId === announcement.id}
-                    onClick={() => void handleRestore(announcement.id)}
-                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                  >
-                    Restore
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busyId === announcement.id}
-                    onClick={() => void handlePurgeForever(announcement.id)}
-                    className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"
-                  >
-                    Delete forever
-                  </button>
+                <div className="mt-3 text-sm">
+                  <RichTextDisplay content={announcement.body} />
                 </div>
-              </div>
-              <div className="mt-3 text-sm">
-                <RichTextDisplay content={announcement.body} />
-              </div>
-              <AnnouncementThread
-                announcementId={announcement.id}
-                currentUserId={userId}
-                isAdmin={isAdmin}
-              />
-            </article>
-          ))}
-        {announcements.filter((a) => a.deletedAt).length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-            No deleted announcements for this event.
-          </p>
-        ) : null}
-      </div>
+                <AnnouncementThread
+                  announcementId={announcement.id}
+                  currentUserId={userId}
+                  isAdmin={isAdmin}
+                />
+              </article>
+            ))}
+          {announcements.filter((a) => a.deletedAt).length === 0 ? (
+            <p className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+              No deleted announcements for this event.
+            </p>
+          ) : null}
+        </div>
+      </details>
     </div>
   );
 }

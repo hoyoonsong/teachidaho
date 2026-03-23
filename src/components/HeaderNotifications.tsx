@@ -10,7 +10,10 @@ type HeaderNotificationsProps = {
 };
 
 function previewFromHtml(html: string, max = 88) {
-  const t = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const t = html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   return t.length > max ? `${t.slice(0, max)}…` : t;
 }
 
@@ -35,11 +38,6 @@ export function HeaderNotifications({ onNavigate }: HeaderNotificationsProps) {
       cancelled = true;
     };
   }, [role]);
-
-  useEffect(() => {
-    if (!open) return;
-    void loadFeed();
-  }, [open, loadFeed]);
 
   useEffect(() => {
     const onVisible = () => {
@@ -89,7 +87,7 @@ export function HeaderNotifications({ onNavigate }: HeaderNotificationsProps) {
 
       {open ? (
         <div
-          className="absolute right-0 top-full z-50 mt-1.5 w-[min(calc(100vw-1rem),19rem)] rounded-xl border border-slate-200 bg-white py-2 shadow-xl ring-1 ring-slate-900/5"
+          className="z-50 w-[min(calc(100vw-1.5rem),19rem)] rounded-xl border border-slate-200 bg-white py-2 shadow-xl ring-1 ring-slate-900/5 max-md:fixed max-md:left-1/2 max-md:top-[4.25rem] max-md:-translate-x-1/2 md:absolute md:right-0 md:top-full md:mt-1.5 md:translate-x-0"
           role="menu"
         >
           <div className="border-b border-slate-100 px-3 pb-2 pt-0.5">

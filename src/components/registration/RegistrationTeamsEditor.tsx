@@ -29,6 +29,8 @@ type RegistrationTeamsEditorProps = {
   variant?: "default" | "embedded";
   /** When true, teams are view-only until parent enables editing (e.g. submitted registration). */
   readOnly?: boolean;
+  /** Replaces the default “Edit registration” hint when {@link readOnly} is true. */
+  readOnlyNotice?: string | null;
   /** Hide the default “teams are locked” notice when the parent shows a unified registration status. */
   hideReadOnlyNotice?: boolean;
   /** Bump when the parent reloads registration row data so teams stay aligned (same moment as snapshot refresh). */
@@ -41,6 +43,7 @@ export function RegistrationTeamsEditor({
   title = "Teams",
   variant = "default",
   readOnly = false,
+  readOnlyNotice = null,
   hideReadOnlyNotice = false,
   resyncToken = 0,
 }: RegistrationTeamsEditorProps) {
@@ -196,7 +199,13 @@ export function RegistrationTeamsEditor({
       >
         {title}
       </h3>
-      {readOnly && hideReadOnlyNotice ? null : readOnly ? (
+      {readOnly && readOnlyNotice ? (
+        <p
+          className={`mt-1.5 rounded-lg border border-amber-200 bg-amber-50/90 px-2.5 py-2 font-medium text-amber-900 ${embedded ? "text-[11px] leading-snug" : "text-xs"}`}
+        >
+          {readOnlyNotice}
+        </p>
+      ) : readOnly && !hideReadOnlyNotice ? (
         <p
           className={`mt-1.5 rounded-lg border border-amber-200 bg-amber-50/90 px-2.5 py-2 font-medium text-amber-900 ${embedded ? "text-[11px] leading-snug" : "text-xs"}`}
         >

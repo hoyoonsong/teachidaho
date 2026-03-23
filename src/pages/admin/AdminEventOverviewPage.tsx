@@ -212,9 +212,9 @@ export function AdminEventOverviewPage({
         </p>
       )}
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="relative mt-6 rounded-2xl border border-slate-200 bg-slate-50/50 p-5 pr-24">
-          <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+        <div className="relative mt-4 rounded-2xl border border-slate-200 bg-slate-50/50 p-4 pr-20 sm:mt-6 sm:p-5 sm:pr-24">
+          <div className="absolute right-2 top-2 sm:right-4 sm:top-4">
             <PencilIconButton
               onClick={() => openModal("name")}
               label="Edit event name"
@@ -228,67 +228,72 @@ export function AdminEventOverviewPage({
           </h2>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="relative rounded-2xl border border-slate-200 bg-white p-5 pt-12 shadow-sm">
-            <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
-              <PencilIconButton
-                onClick={() => openModal("eventDate")}
-                label="Edit event date"
-              />
+        <div className="mt-3 sm:mt-4">
+          <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 xl:grid-cols-4">
+            <div className="relative min-w-0 rounded-2xl border border-slate-200 bg-white p-4 pr-14 shadow-sm sm:p-5 sm:pr-16">
+              <div className="absolute right-2 top-2">
+                <PencilIconButton
+                  onClick={() => openModal("eventDate")}
+                  label="Edit event date"
+                />
+              </div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Event date
+              </p>
+              <p className="mt-1 break-words text-base font-bold text-slate-900 [overflow-wrap:anywhere]">
+                {formatDisplayDate(event.eventDate)}
+              </p>
             </div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Event date
-            </p>
-            <p className="mt-2 text-base font-bold text-slate-900">
-              {formatDisplayDate(event.eventDate)}
-            </p>
-          </div>
-          <div className="relative rounded-2xl border border-slate-200 bg-white p-5 pt-12 shadow-sm">
-            <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
-              <PencilIconButton
-                onClick={() => openModal("location")}
-                label="Edit location"
-              />
+            <div className="relative min-w-0 rounded-2xl border border-slate-200 bg-white p-4 pr-14 shadow-sm sm:p-5 sm:pr-16">
+              <div className="absolute right-2 top-2">
+                <PencilIconButton
+                  onClick={() => openModal("location")}
+                  label="Edit location"
+                />
+              </div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Location
+              </p>
+              <p className="mt-1 break-words text-sm font-bold text-slate-900 [overflow-wrap:anywhere] sm:text-base">
+                {event.location}
+              </p>
             </div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Location
-            </p>
-            <p className="mt-2 text-base font-bold text-slate-900">
-              {event.location}
-            </p>
-          </div>
-          <div className="relative rounded-2xl border border-slate-200 bg-white p-5 pt-12 shadow-sm">
-            <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
-              <PencilIconButton
-                onClick={() => openModal("registrationDeadline")}
-                label="Edit registration deadline"
-              />
+            <div className="relative min-w-0 rounded-2xl border border-slate-200 bg-white p-4 pr-14 shadow-sm sm:p-5 sm:pr-16">
+              <div className="absolute right-2 top-2">
+                <PencilIconButton
+                  onClick={() => openModal("registrationDeadline")}
+                  label="Edit registration deadline"
+                />
+              </div>
+              <p
+                className="text-[11px] font-bold uppercase tracking-wider text-slate-400"
+                title="Registration deadline"
+              >
+                Reg. deadline
+              </p>
+              <p className="mt-1 break-words text-sm font-bold text-slate-900 [overflow-wrap:anywhere] sm:text-base">
+                {formatDisplayDate(event.registrationDeadline)}
+              </p>
             </div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Registration deadline
-            </p>
-            <p className="mt-2 text-base font-bold text-slate-900">
-              {formatDisplayDate(event.registrationDeadline)}
-            </p>
-          </div>
-          <div className="relative rounded-2xl border border-slate-200 bg-white p-5 pt-12 shadow-sm">
-            <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
-              <PencilIconButton
-                onClick={() => openModal("status")}
-                label="Edit status"
-              />
+            <div className="relative min-w-0 rounded-2xl border border-slate-200 bg-white p-4 pr-14 shadow-sm sm:p-5 sm:pr-16">
+              <div className="absolute right-2 top-2">
+                <PencilIconButton
+                  onClick={() => openModal("status")}
+                  label="Edit status"
+                />
+              </div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Status
+              </p>
+              <p className="mt-1 break-words text-sm font-bold capitalize text-slate-900 [overflow-wrap:anywhere] sm:text-base">
+                {event.status}
+              </p>
             </div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Status
-            </p>
-            <p className="mt-2 text-base font-bold capitalize text-slate-900">
-              {event.status}
-            </p>
           </div>
         </div>
 
-        <div className="relative mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-5 pr-24 shadow-sm">
-          <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
+        <div className="relative mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 pr-20 shadow-sm sm:mt-4 sm:p-5 sm:pr-24">
+          <div className="absolute right-2 top-2 sm:right-4 sm:top-4">
             <PencilIconButton
               onClick={() => openModal("notes")}
               label="Edit additional info for participants"
@@ -298,11 +303,11 @@ export function AdminEventOverviewPage({
             Additional info for participants
           </p>
           {event.additionalInfo?.trim() ? (
-            <p className="mt-2 text-sm leading-relaxed text-slate-700">
+            <p className="mt-1 text-sm leading-relaxed text-slate-700">
               {event.additionalInfo}
             </p>
           ) : (
-            <p className="mt-2 text-sm italic text-slate-500">
+            <p className="mt-1 text-sm italic text-slate-500">
               No extra notes yet — visible on the Participants hub when added.
             </p>
           )}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { ParticipantEventAnnouncementsList } from "../components/announcements/ParticipantEventAnnouncementsList";
 import { EventAnnouncementsSignupBlurb } from "../components/events/EventAnnouncementsSignupBlurb";
@@ -122,33 +122,36 @@ export function ParticipantEventWorkspace({
     isAuthenticated,
   ]);
 
-  const loadEvent = useCallback(async () => {
-    setLoading(true);
-    const row = await getParticipantVisibleEvent(eventId);
-    setEvent(row);
-    setLoading(false);
-  }, [eventId]);
-
+  /**
+   * Event row and announcement access are independent; one round-trip worth of
+   * parallel work instead of waiting for the event fetch before the feed gate.
+   */
   useEffect(() => {
-    void loadEvent();
-  }, [loadEvent]);
-
-  useEffect(() => {
-    if (!event || authLoading) return;
+    if (authLoading) return;
     let cancelled = false;
+    setLoading(true);
     setFeedAccessLoading(true);
     void (async () => {
       try {
-        const can = await participantCanViewEventScopedAnnouncements(
-          eventId,
-          role,
-          isAuthenticated,
-        );
+        const [row, can] = await Promise.all([
+          getParticipantVisibleEvent(eventId),
+          participantCanViewEventScopedAnnouncements(
+            eventId,
+            role,
+            isAuthenticated,
+          ),
+        ]);
+        if (cancelled) return;
+        setEvent(row);
+        setCanViewEventFeed(can);
+      } catch {
         if (!cancelled) {
-          setCanViewEventFeed(can);
+          setEvent(null);
+          setCanViewEventFeed(false);
         }
       } finally {
         if (!cancelled) {
+          setLoading(false);
           setFeedAccessLoading(false);
         }
       }
@@ -156,7 +159,7 @@ export function ParticipantEventWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [event, eventId, authLoading, isAuthenticated, role, locationPath]);
+  }, [eventId, authLoading, isAuthenticated, role, locationPath]);
 
   async function handleUnsubscribeFromEventUpdates() {
     if (

@@ -188,9 +188,18 @@ create table if not exists public.registrations (
   submitted_at timestamptz,
   reviewed_at timestamptz,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (event_id, teacher_id)
+  updated_at timestamptz not null default now()
 );
+
+-- Soft-delete bin for admin-removed registrations; rows are hard-deleted after ~30 days (app purge).
+alter table public.registrations add column if not exists deleted_at timestamptz;
+
+-- One active row per (event, teacher); soft-deleted rows are excluded so teachers can re-register after purge.
+alter table public.registrations drop constraint if exists registrations_event_id_teacher_id_key;
+
+create unique index if not exists registrations_event_teacher_active_key
+  on public.registrations (event_id, teacher_id)
+  where deleted_at is null;
 
 -- ---------------------------------------------------------
 -- EVENT ANNOUNCEMENT SUBSCRIPTIONS
@@ -381,6 +390,7 @@ as $$
     from public.registrations r
     where r.teacher_id = auth.uid()
       and r.event_id = p_event_id
+      and r.deleted_at is null
       and r.status in ('submitted', 'approved')
   );
 $$;
@@ -965,6 +975,7 @@ as $$
   inner join public.registrations r on r.id = t.registration_id
   inner join public.events e on e.id = r.event_id
   where r.event_id = p_event_id
+    and r.deleted_at is null
     and e.is_public = true
     and e.status in ('published', 'active', 'closed');
 $$;
