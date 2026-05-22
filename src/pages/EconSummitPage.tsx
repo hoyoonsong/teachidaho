@@ -64,9 +64,9 @@ export function EconSummitPage() {
             </a>
             <a
               href="/info/trading-app"
-              className="inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+              className="inline-flex rounded-lg bg-white border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-200"
             >
-              Tutorial
+              See Tutorial
             </a>
           </div>
         </div>
