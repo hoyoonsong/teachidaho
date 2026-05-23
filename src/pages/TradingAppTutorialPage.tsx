@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import alliesScreenshot from "../assets/tradingapp/allies.jpeg";
-import assetsScreenshot from "../assets/tradingapp/assets.jpeg";
-import myContractsScreenshot from "../assets/tradingapp/my-contracts.jpeg";
-import tradeScreenshot from "../assets/tradingapp/trade.jpeg";
+import alliesScreenshot from "../assets/tradingapp/allies.png";
+import assetsScreenshot from "../assets/tradingapp/assets.png";
+import myContractsScreenshot from "../assets/tradingapp/my-contracts.png";
+import contractDetailScreenshot from "../assets/tradingapp/contract-detail.png";
+import tradeScreenshot from "../assets/tradingapp/trade.png";
 
 const tradingAppUrl = "https://mockmarket-68ceb.web.app/";
 
@@ -21,9 +22,9 @@ const studentSections: TutorialSection[] = [
     slug: "assets",
     title: "Your country's assets",
     image: assetsScreenshot,
-    alt: "Assets screen showing food, raw materials, and other resources for Brazil",
+    alt: "Assets screen showing food, raw materials, and other resources for Costa Rica",
     description:
-      "The Assets tab shows how many units of each resource your country holds and how close you are to your import goals. Use the numbers on the left to see current stock, and check Total Imported (for example, 4/4) to see whether you still need to trade for that category.",
+      "The Assets tab shows how many units of each resource your country holds and how close you are to your import goals.  The large number in green is the total you have both from domestic production and from trading with other countries.  A resource tile will turn green once you reach your import goal.",
   },
   {
     slug: "countries",
@@ -31,23 +32,31 @@ const studentSections: TutorialSection[] = [
     image: alliesScreenshot,
     alt: "Countries list showing allied countries with alliance level",
     description:
-      "Open the Countries tab to browse every team in the summit. Allied countries are marked with a green border and an ALLIED label; you can trade with these countries without being charged tariffs. Tap a country to see their resources, and tap the trade button to start trading with them.",
-  },
-  {
-    slug: "trade",
-    title: "Making a trade",
-    image: tradeScreenshot,
-    alt: "Trade screen negotiating an offer with Chile",
-    description:
-      "When you trade with another country, your offer appears under Your offer and theirs under their country's name. You'll also see a preview of the expected tariffs for countries not in your alliance. Once both sides have proposed resources, tap Approve to finalize the deal.",
+      "Open the Countries tab to browse every team in the summit. Allied countries are marked with a green border; you can trade with these countries without being charged tariffs. Tap a country to see their resources, and tap the trade button to start trading with them.",
   },
   {
     slug: "contracts",
-    title: "My contracts",
+    title: "Viewing your contracts",
     image: myContractsScreenshot,
     alt: "My Contracts screen listing an active trade with Chile",
     description:
-      "Contracts are an easy way to stay organized in what trades you've promised to complete. Go up to the admin desk with the country you want to trade with, and sign a contract together. Once the trading session starts, hit the trade icon to initiate the trade.",
+      "Contracts are an easy way to stay organized in what trades you've promised to complete. Go up to the admin desk with the country you want to trade with, and sign a contract together.  Contracts are automatically marked completed once the resources are exchanged.",
+  },
+  {
+    slug: "contract-detail",
+    title: "Making trades from your contracts",
+    image: contractDetailScreenshot,
+    alt: "Contract details screen showing the resources you will be trading and receiving",
+    description:
+      "When you tap a contract, you can see the details of the trade.  You can see the resources you will be trading and receiving.   Once the trading session starts, hit the trade icon to initiate the trade.",
+  },
+  {
+    slug: "trade",
+    title: "Making trade offers",
+    image: tradeScreenshot,
+    alt: "Trade screen negotiating an offer with Chile",
+    description:
+      "Communicate with the other country to decide what resources to trade. Once both sides have proposed resources, tap Approve to finalize the deal.  A tariff will be charged for each resource imported from a country not in your alliance.",
   },
 ];
 
@@ -141,7 +150,7 @@ function TutorialSectionBlock({
           <img
             src={section.image}
             alt={section.alt ?? ""}
-            className="mx-auto w-full max-w-sm"
+            className="mx-auto w-full max-w-sm max-h-[70vh] object-contain"
           />
         </figure>
       </div>
