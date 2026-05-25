@@ -4,6 +4,11 @@ import assetsScreenshot from "../assets/tradingapp/assets.png";
 import myContractsScreenshot from "../assets/tradingapp/my-contracts.png";
 import contractDetailScreenshot from "../assets/tradingapp/contract-detail.png";
 import tradeScreenshot from "../assets/tradingapp/trade.png";
+import adminTeamsScreenshot from "../assets/tradingapp/admin-teams.png";
+import adminFinalizeContractScreenshot from "../assets/tradingapp/admin-finalize-contract.png";
+import adminAllContractsScreenshot from "../assets/tradingapp/admin-all-contracts.png";
+import adminTradesScreenshot from "../assets/tradingapp/admin-trades.png";
+import adminUsScreenshot from "../assets/tradingapp/admin-us.png";
 
 const tradingAppUrl = "https://mockmarket-68ceb.web.app/";
 
@@ -62,28 +67,44 @@ const studentSections: TutorialSection[] = [
 
 const teacherSections: TutorialSection[] = [
   {
-    slug: "teacher-prep",
-    title: "Before the trading session",
+    slug: "teacher-teams",
+    title: "Teams, alliances, and inventory",
+    image: adminTeamsScreenshot,
+    alt: "Admin Teams screen with country list, alliance management, and inventory for Austria",
     description:
-      "Confirm your class is registered for the summit and each team knows their country assignment. Review import goals with students so they understand what resources they still need. Share the student tutorial on this page so teams can practice navigating the app before the live trading window.",
+      "Open the Teams tab to manage every country in the summit. Select a country on the left to see its alliance and resource counts. Use the middle panel to move a country into an alliance or remove it, and create new alliances with the plus button. The inventory panel on the right shows each resource category; tap the pencil icon to adjust counts when you need to correct a team's holdings.",
   },
   {
     slug: "teacher-contracts",
-    title: "Signing contracts at the admin desk",
+    title: "Creating contracts at the admin desk",
+    image: adminFinalizeContractScreenshot,
+    alt: "Admin Contracts screen building Belarus offers and selecting a trading partner",
     description:
-      "Before trading opens, countries negotiate agreements on paper at the admin desk. Both teams should agree on what each country will send and receive, then sign the contract. Those agreements are what students later enter in the app under My Contracts when the trading session begins.",
+      "When two countries agree on a deal at the admin desk, open the Contracts tab and select the first country from the list on the right. Use the plus and minus buttons to enter what that country will send. Select the second country, set their side of the deal, and tap Finalize Contract. Students will see the agreement in My Contracts once trading opens. Use View All Contracts in the corner to jump to the full list.",
   },
   {
-    slug: "teacher-session",
-    title: "During the trading session",
+    slug: "teacher-all-contracts",
+    title: "Viewing all contracts",
+    image: adminAllContractsScreenshot,
+    alt: "All Contracts screen listing pending and completed trades between countries",
     description:
-      "When trading is open, students execute deals in the app that match their signed contracts. Circulate among teams to answer questions about allies, tariffs, and offer approval. If a trade stalls, remind students that both countries must propose resources and tap Approve before the exchange completes.",
+      "The All Contracts view shows every agreement in the summit. Search by country name or contract ID, or filter to Pending or Completed. Each card shows both countries, the resources each will exchange, and whether the contract is still waiting on trades or already finished. Tap a contract to open its details when you need to verify what was signed.",
   },
   {
-    slug: "teacher-support",
-    title: "Helping students in the app",
+    slug: "teacher-trades",
+    title: "Monitoring trades and tariffs",
+    image: adminTradesScreenshot,
+    alt: "Admin Trades screen listing completed trades with tariff due and paid status",
     description:
-      "You do not need to trade on behalf of students, but knowing the main screens helps you troubleshoot quickly. Use the student tutorial tabs on this page as a reference: Assets for progress toward goals, Countries for finding partners, Trades for active negotiations, and Contracts for deals already agreed to on paper.",
+      "The Trades tab lists every completed exchange in the app. Filter to All with Tariffs or Unpaid Tariffs to focus on deals that still owe import taxes. Trades marked Tariffs Due show a Pay Tariff button for each country that owes units; tap it when a team has paid their tariff at the admin desk. Trades marked Tariffs Paid are fully settled.",
+  },
+  {
+    slug: "teacher-united-states",
+    title: "United States trades",
+    image: adminUsScreenshot,
+    alt: "United States admin screen to force a completed trade with another country",
+    description:
+      "The United States can be played by students like a normal country, or this tab can be used at the admin desk to executively complete trades with other countries."
   },
 ];
 
@@ -113,10 +134,20 @@ function TutorialSectionBlock({
   section: TutorialSection;
   index: number;
 }) {
+  const [enlarged, setEnlarged] = useState(false);
   const bgClass =
     index % 2 === 0
       ? "scroll-mt-24 border-b border-slate-200 bg-slate-50"
       : "scroll-mt-24 border-b border-slate-200 bg-white";
+
+  useEffect(() => {
+    if (!enlarged) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEnlarged(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [enlarged]);
 
   if (!section.image) {
     return (
@@ -147,13 +178,48 @@ function TutorialSectionBlock({
         <figure
           className={`overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-sm ${index % 2 === 1 ? "lg:order-1" : ""}`}
         >
-          <img
-            src={section.image}
-            alt={section.alt ?? ""}
-            className="mx-auto w-full max-w-sm max-h-[70vh] object-contain"
-          />
+          <button
+            type="button"
+            onClick={() => setEnlarged(true)}
+            className="block w-full cursor-zoom-in transition hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+            aria-label={`Enlarge screenshot: ${section.alt ?? section.title}`}
+          >
+            <img
+              src={section.image}
+              alt={section.alt ?? ""}
+              className="mx-auto w-full max-h-[70vh] object-contain"
+            />
+          </button>
         </figure>
       </div>
+
+      {enlarged && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={section.alt ?? section.title}
+          onClick={() => setEnlarged(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4"
+        >
+          <div
+            className="relative max-h-[90vh] max-w-6xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setEnlarged(false)}
+              className="absolute -right-2 -top-2 z-10 rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-900 shadow-sm"
+            >
+              Close
+            </button>
+            <img
+              src={section.image}
+              alt={section.alt ?? ""}
+              className="max-h-[88vh] w-auto max-w-full rounded-xl object-contain"
+            />
+          </div>
+        </div>
+      )}
     </section>
   );
 }
