@@ -19,6 +19,7 @@ import { HomePage } from "./pages/HomePage";
 import { ParticipantsPage } from "./pages/ParticipantsPage";
 import { ParticipantsRegisterPage } from "./pages/ParticipantsRegisterPage";
 import { PitchCompetitionPage } from "./pages/PitchCompetitionPage";
+import { TradingAppTutorialPage } from "./pages/TradingAppTutorialPage";
 import { AnnouncementsFeedPage } from "./pages/AnnouncementsFeedPage";
 import { AdminEventsPage } from "./pages/admin/AdminEventsPage";
 import { AdminEventWorkspace } from "./pages/admin/AdminEventWorkspace";
@@ -148,6 +149,7 @@ function App() {
       "/announcements",
       "/info/econsummit",
       "/info/pitch-competition",
+      "/info/trading-app",
       "/participants",
       "/participants/register",
     ].includes(path) ||
@@ -317,6 +319,7 @@ function App() {
         {path === "/gallery" && <GalleryPage mixedGallery={mixedGallery} />}
         {path === "/info/econsummit" && <EconSummitPage />}
         {path === "/info/pitch-competition" && <PitchCompetitionPage />}
+        {path === "/info/trading-app" && <TradingAppTutorialPage />}
         {participantSubscribeRoute && (
           <EventAnnouncementsSubscribePage
             key={`${participantSubscribeRoute.eventId}-${participantSubscribeRoute.volunteerOnly ? "v" : "p"}`}
