@@ -9,6 +9,7 @@ import adminFinalizeContractScreenshot from "../assets/tradingapp/admin-finalize
 import adminAllContractsScreenshot from "../assets/tradingapp/admin-all-contracts.png";
 import adminTradesScreenshot from "../assets/tradingapp/admin-trades.png";
 import adminUsScreenshot from "../assets/tradingapp/admin-us.png";
+import adminSettingsScreenshot from "../assets/tradingapp/admin-setup.png";
 
 const tradingAppUrl = "https://mockmarket-68ceb.web.app/";
 
@@ -67,6 +68,13 @@ const studentSections: TutorialSection[] = [
 
 const teacherSections: TutorialSection[] = [
   {
+    slug: "teacher-setup",
+    title: "Admin settings and importing data",
+    description: "The admin settings screen allows you to configure the trading app.  You can set the initial resources by uploading a CSV file, or by manually entering the resources for each country.  When you are ready, copy the login credentials and share them with your students.  Open logins and trading when the you reach the appropriate time.",
+    image: adminSettingsScreenshot,
+    alt: "Admin Settings screen showing the settings of the trading app",
+  },
+  {
     slug: "teacher-teams",
     title: "Teams, alliances, and inventory",
     image: adminTeamsScreenshot,
@@ -104,7 +112,7 @@ const teacherSections: TutorialSection[] = [
     image: adminUsScreenshot,
     alt: "United States admin screen to force a completed trade with another country",
     description:
-      "The United States can be played by students like a normal country, or this tab can be used at the admin desk to executively complete trades with other countries."
+      "The United States can be played by students like a normal country if the option is enabled in the admin settings, otherwise, this tab can be used at the admin desk to executively complete trades with other countries."
   },
 ];
 
