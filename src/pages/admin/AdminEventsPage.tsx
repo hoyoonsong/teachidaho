@@ -128,6 +128,8 @@ export function AdminEventsPage({ onNavigate }: AdminEventsPageProps) {
       ...form,
       status: "draft",
       scoreboardVisibleToParticipants: true,
+      registrationTeamsEnabled: true,
+      registrationCountries: [],
     });
     setForm(initialForm);
     setCreateOpen(false);

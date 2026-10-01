@@ -44,6 +44,7 @@ export function DynamicForm({
   const [values, setValues] = useState<FormSubmissionPayload>(defaultValues);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const lastInitialJson = useRef<string | null>(null);
   useEffect(() => {
@@ -140,8 +141,17 @@ export function DynamicForm({
     }
 
     setIsSubmitting(true);
-    await onSubmit(values);
-    setIsSubmitting(false);
+    setSubmitError(null);
+    try {
+      await onSubmit(values);
+    } catch (err) {
+      console.warn(err);
+      setSubmitError(
+        err instanceof Error ? err.message : "Could not submit. Try again.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -218,6 +228,11 @@ export function DynamicForm({
         </label>
       ))}
       <div className={submitColClass}>
+        {submitError ? (
+          <p className="mb-2 text-sm font-medium text-rose-700" role="alert">
+            {submitError}
+          </p>
+        ) : null}
         <button
           type="submit"
           disabled={disabled || isSubmitting}

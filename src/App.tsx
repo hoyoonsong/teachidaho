@@ -56,10 +56,19 @@ function parseEventAdminRoute(pathname: string): {
   section: AdminEventSection;
 } | null {
   const match = pathname.match(
-    /^\/admin\/events\/([^/]+)\/(overview|registrations|announcements|scoreboard|volunteers)$/,
+    /^\/admin\/events\/([^/]+)\/(overview|submissions|registration-form|announcements|scoreboard|volunteers)$/,
   );
   if (!match) return null;
   return { eventId: match[1], section: match[2] as AdminEventSection };
+}
+
+/** Old per-event /registrations → /submissions */
+function parseLegacyEventRegistrationsRoute(
+  pathname: string,
+): { eventId: string } | null {
+  const match = pathname.match(/^\/admin\/events\/([^/]+)\/registrations$/);
+  if (!match) return null;
+  return { eventId: match[1] };
 }
 
 function isAdminPathKnown(pathname: string): boolean {
@@ -265,6 +274,14 @@ function App() {
     if (!LEGACY_ADMIN_PATHS.includes(path)) return;
     queueMicrotask(() => navigate("/admin/events"));
   }, [isAdminPath, path, navigate]);
+
+  useEffect(() => {
+    const legacy = parseLegacyEventRegistrationsRoute(path);
+    if (!legacy) return;
+    queueMicrotask(() =>
+      navigate(`/admin/events/${legacy.eventId}/submissions`),
+    );
+  }, [path, navigate]);
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-50 text-slate-800">

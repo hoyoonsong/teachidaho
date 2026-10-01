@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 
 export type AdminEventSection =
   | "overview"
-  | "registrations"
+  | "submissions"
+  | "registration-form"
   | "announcements"
   | "scoreboard"
   | "volunteers";
@@ -19,7 +20,12 @@ type AdminShellProps = {
 const EVENT_SECTIONS: { id: AdminEventSection; label: string; path: string }[] =
   [
     { id: "overview", label: "Overview", path: "/overview" },
-    { id: "registrations", label: "Registrations", path: "/registrations" },
+    { id: "submissions", label: "Submissions", path: "/submissions" },
+    {
+      id: "registration-form",
+      label: "Registration form",
+      path: "/registration-form",
+    },
     { id: "announcements", label: "Announcements", path: "/announcements" },
     { id: "scoreboard", label: "Scoreboard", path: "/scoreboard" },
     { id: "volunteers", label: "Volunteers", path: "/volunteers" },
@@ -27,7 +33,8 @@ const EVENT_SECTIONS: { id: AdminEventSection; label: string; path: string }[] =
 
 const SECTION_TITLE: Record<AdminEventSection, string> = {
   overview: "Overview",
-  registrations: "Registrations",
+  submissions: "Submissions",
+  "registration-form": "Registration form",
   announcements: "Announcements",
   scoreboard: "Scoreboard",
   volunteers: "Volunteers",
@@ -86,7 +93,7 @@ export function AdminShell({
 
           {eventId && (
             <nav
-              className="mx-auto mt-8 flex max-w-[min(100%,36rem)] flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-3"
+              className="mx-auto mt-8 grid w-full max-w-2xl grid-cols-1 gap-2.5 sm:grid-cols-3 sm:gap-3"
               aria-label="Event sections"
             >
               {EVENT_SECTIONS.map(({ id, label, path }) => {
@@ -97,7 +104,7 @@ export function AdminShell({
                     key={id}
                     type="button"
                     onClick={() => onNavigate(href)}
-                    className={`rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm transition sm:min-w-[140px] sm:flex-1 sm:py-3 sm:text-base ${
+                    className={`rounded-xl px-3 py-3 text-center text-sm font-semibold shadow-sm transition sm:px-4 sm:py-3.5 sm:text-[0.95rem] ${
                       active
                         ? "bg-slate-900 text-white ring-2 ring-slate-900 ring-offset-2"
                         : "border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"

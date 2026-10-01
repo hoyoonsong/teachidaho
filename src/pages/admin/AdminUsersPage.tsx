@@ -206,12 +206,12 @@ export function AdminUsersPage({ onNavigate }: AdminUsersPageProps) {
                                 type="button"
                                 onClick={() =>
                                   onNavigate(
-                                    `/admin/events/${ev.eventId}/registrations`,
+                                    `/admin/events/${ev.eventId}/submissions`,
                                   )
                                 }
                                 className="font-semibold text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950"
                               >
-                                Open registrations →
+                                Open submissions →
                               </button>
                             </span>
                           </li>

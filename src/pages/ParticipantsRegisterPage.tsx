@@ -14,6 +14,7 @@ import {
   getTeacherRegistrationSnapshot,
   listActiveEventsDetailed,
   listTeacherFiledRegistrationEventIds,
+  registrationFormDescription,
   submitForm,
   type EventRecord,
   type FormDefinitionRecord,
@@ -28,6 +29,23 @@ import type { FormSubmissionPayload } from "../types/forms";
 type ParticipantsRegisterPageProps = {
   onNavigate?: (to: string) => void;
 };
+
+/** Participant-facing form heading from form_definitions (with legacy title fallbacks). */
+function registrationFormHeading(form: FormDefinitionRecord): {
+  title: string;
+  description: string | null;
+} {
+  const rawTitle = form.title.trim();
+  const rawDesc = form.description?.trim() ?? "";
+  const title =
+    !rawTitle || rawTitle === "Teacher Registration Form"
+      ? "School & teacher details"
+      : rawTitle;
+  return {
+    title,
+    description: registrationFormDescription(rawDesc),
+  };
+}
 
 export function ParticipantsRegisterPage({
   onNavigate,
@@ -110,7 +128,9 @@ export function ParticipantsRegisterPage({
         listActiveEventsDetailed(),
         listTeacherFiledRegistrationEventIds(),
       ]);
-      setEvents(catalog.events);
+      setEvents(
+        catalog.events.filter((e) => e.status === "active"),
+      );
       setEventsLoadError(catalog.error);
       setFiledRegistrationEventIds(new Set(ids));
     } finally {
@@ -290,6 +310,9 @@ export function ParticipantsRegisterPage({
   }
 
   const formInitialValues = regSnapshot?.payload;
+  const formHeading = formDefinition
+    ? registrationFormHeading(formDefinition)
+    : null;
 
   return (
     <main>
@@ -629,57 +652,67 @@ export function ParticipantsRegisterPage({
                     </div>
                   ) : null}
 
-                  <div className="mt-6">
-                    <RegistrationTeamsEditor
-                      registrationId={registrationId}
-                      title="Your teams"
-                      readOnly={teamsInteractionLocked}
-                      readOnlyNotice={
-                        registrationPastDeadlineBlocked
-                          ? "Teams cannot be changed — the registration deadline has passed and you do not have a registration on file for this event."
-                          : null
-                      }
-                      hideReadOnlyNotice={
-                        teamsInteractionLocked &&
-                        !registrationPastDeadlineBlocked
-                      }
-                      resyncToken={teamsResyncToken}
-                    />
-                  </div>
-                  {formDefinition && (
-                    <div className="mt-6 border-t border-slate-100 pt-6">
-                      <div>
-                        <h2 className="text-lg font-bold text-slate-900">
-                          School &amp; teacher details
+                  {selectedEvent?.registrationTeamsEnabled !== false ? (
+                    <div className="mt-6">
+                      <RegistrationTeamsEditor
+                        registrationId={registrationId}
+                        title="Your teams"
+                        readOnly={teamsInteractionLocked}
+                        readOnlyNotice={
+                          registrationPastDeadlineBlocked
+                            ? "Teams cannot be changed — the registration deadline has passed and you do not have a registration on file for this event."
+                            : null
+                        }
+                        hideReadOnlyNotice={
+                          teamsInteractionLocked &&
+                          !registrationPastDeadlineBlocked
+                        }
+                        resyncToken={teamsResyncToken}
+                        countries={selectedEvent?.registrationCountries ?? []}
+                      />
+                    </div>
+                  ) : null}
+                  {formDefinition && formHeading && (
+                    <div className="mt-6">
+                      <div
+                        className={
+                          formInteractionLocked
+                            ? "rounded-2xl border border-slate-200 bg-slate-50/80 p-5 shadow-sm ring-1 ring-slate-100 sm:p-6"
+                            : "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
+                        }
+                      >
+                        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                          Form
+                        </p>
+                        <h2 className="mt-1 text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
+                          {formHeading.title}
                         </h2>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Notes and consent follow your contact information.
-                        </p>
+                        {formHeading.description ? (
+                          <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
+                            {formHeading.description}
+                          </p>
+                        ) : null}
+                        {snapshotLoading ? (
+                          <p className="mt-4 text-sm text-slate-500">
+                            Loading your saved answers…
+                          </p>
+                        ) : (
+                          <div className="mt-5 border-t border-slate-100 pt-5">
+                            <DynamicForm
+                              definition={formDefinition}
+                              initialValues={formInitialValues}
+                              prefillIfEmpty={teacherPrefillIfEmpty}
+                              disabled={formInteractionLocked}
+                              submitLabel={
+                                isFiled
+                                  ? "Save updates"
+                                  : "Submit registration"
+                              }
+                              onSubmit={handleSubmit}
+                            />
+                          </div>
+                        )}
                       </div>
-                      {snapshotLoading ? (
-                        <p className="mt-4 text-sm text-slate-500">
-                          Loading your saved answers…
-                        </p>
-                      ) : (
-                        <div
-                          className={
-                            formInteractionLocked
-                              ? "mt-4 rounded-lg bg-slate-50/80 p-3 ring-1 ring-slate-200/80"
-                              : "mt-4"
-                          }
-                        >
-                          <DynamicForm
-                            definition={formDefinition}
-                            initialValues={formInitialValues}
-                            prefillIfEmpty={teacherPrefillIfEmpty}
-                            disabled={formInteractionLocked}
-                            submitLabel={
-                              isFiled ? "Save updates" : "Submit registration"
-                            }
-                            onSubmit={handleSubmit}
-                          />
-                        </div>
-                      )}
                     </div>
                   )}
                 </>

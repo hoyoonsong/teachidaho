@@ -1,23 +1,17 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PencilIconButton } from "../ui/PencilIconButton";
+import { CountrySearchSelect } from "./CountrySearchSelect";
+import {
+  MemberNamePillsDisplay,
+  MemberNamePillsInput,
+} from "./MemberNamePillsInput";
 import {
   createRegistrationTeam,
   deleteRegistrationTeam,
   listTeamsForRegistration,
-  parseMemberNamesText,
   updateRegistrationTeam,
   type RegistrationTeamRecord,
 } from "../../lib/appDataStore";
-
-function memberNamesToEditableText(names: string[]): string {
-  return names.join(", ");
-}
 
 type RegistrationTeamsEditorProps = {
   registrationId: string | null;
@@ -35,6 +29,8 @@ type RegistrationTeamsEditorProps = {
   hideReadOnlyNotice?: boolean;
   /** Bump when the parent reloads registration row data so teams stay aligned (same moment as snapshot refresh). */
   resyncToken?: number;
+  /** Per-event country bank; empty = free-text country/team name. */
+  countries?: string[];
 };
 
 export function RegistrationTeamsEditor({
@@ -46,18 +42,20 @@ export function RegistrationTeamsEditor({
   readOnlyNotice = null,
   hideReadOnlyNotice = false,
   resyncToken = 0,
+  countries = [],
 }: RegistrationTeamsEditorProps) {
   const embedded = variant === "embedded";
-  const membersInputRef = useRef<HTMLInputElement>(null);
+  const size = embedded ? "sm" : "default";
+  const useCountryBank = countries.length > 0;
   const [teams, setTeams] = useState<RegistrationTeamRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState("");
-  const [newMembers, setNewMembers] = useState("");
+  const [newMembers, setNewMembers] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
-  const [editMembers, setEditMembers] = useState("");
+  const [editMembers, setEditMembers] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     if (!registrationId) {
@@ -87,12 +85,11 @@ export function RegistrationTeamsEditor({
   }, [readOnly]);
 
   const canAddTeam =
-    Boolean(registrationId && newLabel.trim()) &&
-    parseMemberNamesText(newMembers).length > 0;
+    Boolean(registrationId && newLabel.trim()) && newMembers.length > 0;
 
   async function handleAdd() {
     if (!registrationId || !newLabel.trim()) return;
-    if (parseMemberNamesText(newMembers).length === 0) {
+    if (newMembers.length === 0) {
       setError("Add at least one team member name.");
       return;
     }
@@ -101,11 +98,11 @@ export function RegistrationTeamsEditor({
     try {
       const row = await createRegistrationTeam(registrationId, {
         teamLabel: newLabel,
-        memberNamesText: newMembers,
+        memberNamesText: newMembers.join(", "),
       });
       if (row) {
         setNewLabel("");
-        setNewMembers("");
+        setNewMembers([]);
         await load();
         onTeamsChanged?.();
       }
@@ -120,12 +117,12 @@ export function RegistrationTeamsEditor({
   function startEdit(t: RegistrationTeamRecord) {
     setEditingId(t.id);
     setEditLabel(t.teamName);
-    setEditMembers(memberNamesToEditableText(t.memberNames));
+    setEditMembers([...t.memberNames]);
   }
 
   async function saveEdit(teamId: string) {
     if (!editLabel.trim()) return;
-    if (parseMemberNamesText(editMembers).length === 0) {
+    if (editMembers.length === 0) {
       setError("Add at least one team member name.");
       return;
     }
@@ -134,7 +131,7 @@ export function RegistrationTeamsEditor({
     try {
       await updateRegistrationTeam(teamId, {
         teamLabel: editLabel,
-        memberNamesText: editMembers,
+        memberNamesText: editMembers.join(", "),
       });
       setEditingId(null);
       await load();
@@ -172,21 +169,13 @@ export function RegistrationTeamsEditor({
     );
   }
 
-  function onNewTeamKeyDown(e: KeyboardEvent, field: "label" | "members") {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    if (canAddTeam && !saving) {
-      void handleAdd();
-      return;
-    }
-    if (field === "label" && newLabel.trim()) {
-      membersInputRef.current?.focus();
-    }
-  }
-
   const shellClass = embedded
     ? "rounded-lg bg-slate-50/90 p-3 ring-1 ring-slate-200/70"
     : "rounded-xl border border-slate-200 bg-slate-50/50 p-4";
+
+  const labelClass = embedded
+    ? "text-[10px] font-semibold uppercase tracking-wide text-slate-500"
+    : "text-xs font-semibold uppercase tracking-wide text-slate-500";
 
   return (
     <div className={shellClass}>
@@ -216,8 +205,9 @@ export function RegistrationTeamsEditor({
         <p className="mt-0.5 text-[11px] leading-snug text-slate-500"></p>
       ) : (
         <p className="mt-1 text-xs text-slate-600">
-          Country/team name and member names are required. Separate names with
-          commas, new lines, or periods (e.g. &quot;john doe, jane smith&quot;).
+          {useCountryBank
+            ? "Pick a country from the list, then add team members as pills (type a name and press Enter). "
+            : "Enter a country/team name, then add team members as pills (type a name and press Enter). "}
           Admins see the same data on the scoreboard.
         </p>
       )}
@@ -234,52 +224,44 @@ export function RegistrationTeamsEditor({
         className={`flex flex-col sm:flex-row sm:flex-wrap sm:items-end ${embedded ? "mt-2 gap-2" : "mt-4 gap-3"}`}
       >
         <label className="block min-w-0 flex-1">
-          <span
-            className={
-              embedded
-                ? "text-[10px] font-semibold uppercase tracking-wide text-slate-500"
-                : "text-xs font-semibold uppercase tracking-wide text-slate-500"
-            }
-          >
-            Country / team name *
+          <span className={labelClass}>
+            {useCountryBank ? "Country *" : "Country / team name *"}
           </span>
-          <input
-            value={newLabel}
-            onChange={(e) => setNewLabel(e.target.value)}
-            onKeyDown={(e) => onNewTeamKeyDown(e, "label")}
-            disabled={readOnly}
-            placeholder="e.g. Brazil"
-            className={
-              embedded
-                ? "mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs"
-                : "mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            }
-          />
+          {useCountryBank ? (
+            <CountrySearchSelect
+              countries={countries}
+              value={newLabel}
+              onChange={setNewLabel}
+              disabled={readOnly}
+              size={size}
+              placeholder="Search countries…"
+            />
+          ) : (
+            <input
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              disabled={readOnly}
+              placeholder="e.g. Brazil"
+              className={
+                embedded
+                  ? "mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs"
+                  : "mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              }
+            />
+          )}
         </label>
-        <label className="block min-w-0 flex-1">
-          <span
-            className={
-              embedded
-                ? "text-[10px] font-semibold uppercase tracking-wide text-slate-500"
-                : "text-xs font-semibold uppercase tracking-wide text-slate-500"
-            }
-          >
-            Team member names *
-          </span>
-          <input
-            ref={membersInputRef}
-            value={newMembers}
-            onChange={(e) => setNewMembers(e.target.value)}
-            onKeyDown={(e) => onNewTeamKeyDown(e, "members")}
+        <div className="block min-w-0 flex-[1.4]">
+          <span className={labelClass}>Team member names *</span>
+          <MemberNamePillsInput
+            names={newMembers}
+            onChange={setNewMembers}
             disabled={readOnly}
-            placeholder="e.g. john doe, john smith, john hancock"
-            className={
-              embedded
-                ? "mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs"
-                : "mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            }
+            size={size}
+            onEnterWhenEmpty={() => {
+              if (canAddTeam && !saving) void handleAdd();
+            }}
           />
-        </label>
+        </div>
         <button
           type="button"
           disabled={readOnly || saving || !canAddTeam}
@@ -321,36 +303,38 @@ export function RegistrationTeamsEditor({
                 <div
                   className={`flex flex-col sm:flex-row sm:flex-wrap sm:items-end ${embedded ? "gap-1.5" : "gap-2"}`}
                 >
-                  <label
-                    className={`block min-w-0 flex-1 font-semibold uppercase tracking-wide text-slate-500 ${embedded ? "text-[10px]" : "text-xs"}`}
-                  >
-                    Country / team name *
-                    <input
-                      value={editLabel}
-                      onChange={(e) => setEditLabel(e.target.value)}
-                      disabled={readOnly}
-                      className={
-                        embedded
-                          ? "mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-normal"
-                          : "mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
-                      }
-                    />
+                  <label className={`block min-w-0 flex-1 ${labelClass}`}>
+                    {useCountryBank ? "Country *" : "Country / team name *"}
+                    {useCountryBank ? (
+                      <CountrySearchSelect
+                        countries={countries}
+                        value={editLabel}
+                        onChange={setEditLabel}
+                        disabled={readOnly}
+                        size={size}
+                      />
+                    ) : (
+                      <input
+                        value={editLabel}
+                        onChange={(e) => setEditLabel(e.target.value)}
+                        disabled={readOnly}
+                        className={
+                          embedded
+                            ? "mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-normal"
+                            : "mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
+                        }
+                      />
+                    )}
                   </label>
-                  <label
-                    className={`block min-w-0 flex-1 font-semibold uppercase tracking-wide text-slate-500 ${embedded ? "text-[10px]" : "text-xs"}`}
-                  >
+                  <div className={`block min-w-0 flex-[1.4] ${labelClass}`}>
                     Team member names *
-                    <input
-                      value={editMembers}
-                      onChange={(e) => setEditMembers(e.target.value)}
+                    <MemberNamePillsInput
+                      names={editMembers}
+                      onChange={setEditMembers}
                       disabled={readOnly}
-                      className={
-                        embedded
-                          ? "mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-normal"
-                          : "mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
-                      }
+                      size={size}
                     />
-                  </label>
+                  </div>
                   <div
                     className={`flex flex-wrap sm:shrink-0 ${embedded ? "gap-1.5" : "gap-2"}`}
                   >
@@ -360,7 +344,7 @@ export function RegistrationTeamsEditor({
                         readOnly ||
                         saving ||
                         !editLabel.trim() ||
-                        parseMemberNamesText(editMembers).length === 0
+                        editMembers.length === 0
                       }
                       onClick={() => void saveEdit(t.id)}
                       className={
@@ -397,15 +381,10 @@ export function RegistrationTeamsEditor({
                       {embedded ? t.teamName : `${t.teamName}:`}
                     </p>
                     {t.memberNames.length > 0 ? (
-                      <p
-                        className={
-                          embedded
-                            ? "mt-0.5 text-[11px] leading-snug text-slate-600"
-                            : "mt-1 text-sm leading-relaxed text-slate-700"
-                        }
-                      >
-                        {t.memberNames.join(", ")}
-                      </p>
+                      <MemberNamePillsDisplay
+                        names={t.memberNames}
+                        size={size}
+                      />
                     ) : (
                       <p
                         className={

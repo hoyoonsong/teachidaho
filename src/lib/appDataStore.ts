@@ -1,6 +1,7 @@
 import type { UserRole } from "../types/auth";
 import type {
   DynamicFormDefinition,
+  FormFieldDefinition,
   FormSubmissionPayload,
 } from "../types/forms";
 import { withNetworkRetries } from "./networkRetry";
@@ -37,6 +38,10 @@ export type EventRecord = {
   status: EventStatus;
   /** Stored in custom_settings; default true when unset. */
   scoreboardVisibleToParticipants: boolean;
+  /** When true (default), teachers see the teams section on register. */
+  registrationTeamsEnabled: boolean;
+  /** Per-event country bank for team registration; empty = free-text team name. */
+  registrationCountries: string[];
   scoreboard?: ScoreboardGridState;
 };
 
@@ -141,6 +146,10 @@ type EventCustomSettings = {
   scoreboard?: ScoreboardGridState;
   /** Default true when omitted — participants see Scoreboard tab + live board. */
   scoreboardVisibleToParticipants?: boolean;
+  /** Default true when omitted — show teams block on registration. */
+  registrationTeamsEnabled?: boolean;
+  /** Countries available in the searchable team-name dropdown for this event. */
+  registrationCountries?: string[];
 };
 
 type EventRow = {
@@ -262,11 +271,32 @@ export function parseScoreboardGridFromSettings(
   return { columns, cells };
 }
 
+function parseRegistrationCountries(
+  settings: EventCustomSettings | null | undefined,
+): string[] {
+  const raw = settings?.registrationCountries;
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const name = item.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
 function toEventRecord(row: EventRow): EventRecord {
   const scoreboard = parseScoreboardGridFromSettings(row.custom_settings);
   const cs = row.custom_settings ?? {};
   const scoreboardVisibleToParticipants =
     cs.scoreboardVisibleToParticipants === false ? false : true;
+  const registrationTeamsEnabled =
+    cs.registrationTeamsEnabled === false ? false : true;
   return {
     id: row.id,
     name: row.name,
@@ -278,6 +308,8 @@ function toEventRecord(row: EventRow): EventRecord {
     registrationDeadline: formatDateOnly(row.registration_deadline),
     status: row.status,
     scoreboardVisibleToParticipants,
+    registrationTeamsEnabled,
+    registrationCountries: parseRegistrationCountries(cs),
     ...(scoreboard ? { scoreboard } : {}),
   };
 }
@@ -326,6 +358,28 @@ function ensureTeacherRegistrationLayout(
     }
     return f;
   });
+}
+
+const LEGACY_REGISTRATION_FORM_DESCRIPTION =
+  "Reusable registration form for participating classrooms.";
+
+export const DEFAULT_REGISTRATION_FORM_DESCRIPTION =
+  "Notes and consent follow your contact information.";
+
+/**
+ * Helper text shown under the registration section title.
+ * A blank value is intentional (no helper text). Only the old boilerplate
+ * sentence is rewritten to the current default.
+ */
+export function registrationFormDescription(
+  raw: string | null | undefined,
+): string | null {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return null;
+  if (trimmed === LEGACY_REGISTRATION_FORM_DESCRIPTION) {
+    return DEFAULT_REGISTRATION_FORM_DESCRIPTION;
+  }
+  return trimmed;
 }
 
 /** Strips deprecated fields and applies teacher-registration row layout when applicable. */
@@ -632,7 +686,10 @@ export async function createEvent(input: Omit<EventRecord, "id">) {
     async () => ({
       ...input,
       id: crypto.randomUUID(),
-      scoreboardVisibleToParticipants: true,
+      scoreboardVisibleToParticipants:
+        input.scoreboardVisibleToParticipants ?? true,
+      registrationTeamsEnabled: input.registrationTeamsEnabled ?? true,
+      registrationCountries: input.registrationCountries ?? [],
     }),
   );
 }
@@ -803,6 +860,76 @@ export async function saveScoreboardParticipantVisibility(
     },
     async () => undefined,
   );
+}
+
+export async function saveEventRegistrationCountries(
+  eventId: string,
+  countries: string[],
+) {
+  return withSupabase(
+    async () => {
+      if (!supabase) throw new Error("No supabase");
+      const cleaned = parseRegistrationCountries({
+        registrationCountries: countries,
+      });
+      const { data: row, error: readError } = await supabase
+        .from("events")
+        .select("custom_settings")
+        .eq("id", eventId)
+        .single<{ custom_settings: EventCustomSettings | null }>();
+      if (readError) throw readError;
+      const prev = row?.custom_settings ?? {};
+      const nextSettings: EventCustomSettings = {
+        ...prev,
+        registrationCountries: cleaned,
+      };
+      const { error } = await supabase
+        .from("events")
+        .update({ custom_settings: nextSettings })
+        .eq("id", eventId);
+      if (error) throw error;
+      return cleaned;
+    },
+    async () => parseRegistrationCountries({ registrationCountries: countries }),
+  );
+}
+
+/** Persist registration form options stored on the event (teams toggle + countries). */
+export async function saveEventRegistrationOptions(
+  eventId: string,
+  options: {
+    registrationTeamsEnabled: boolean;
+    registrationCountries: string[];
+  },
+) {
+  if (!hasSupabaseCredentials || !supabase) {
+    throw new Error("Supabase isn’t configured, so registration options cannot be saved.");
+  }
+  const client = supabase;
+  const cleaned = parseRegistrationCountries({
+    registrationCountries: options.registrationCountries,
+  });
+  const { data: row, error: readError } = await client
+    .from("events")
+    .select("custom_settings")
+    .eq("id", eventId)
+    .single<{ custom_settings: EventCustomSettings | null }>();
+  if (readError) throw readError;
+  const prev = row?.custom_settings ?? {};
+  const nextSettings: EventCustomSettings = {
+    ...prev,
+    registrationTeamsEnabled: options.registrationTeamsEnabled,
+    registrationCountries: cleaned,
+  };
+  const { error } = await client
+    .from("events")
+    .update({ custom_settings: nextSettings })
+    .eq("id", eventId);
+  if (error) throw error;
+  return {
+    registrationTeamsEnabled: options.registrationTeamsEnabled,
+    registrationCountries: cleaned,
+  };
 }
 
 export async function listRegistrationsForEvent(
@@ -1935,110 +2062,273 @@ export async function listFormDefinitions() {
 
 export async function getRegistrationFormForEvent(eventId: string | null) {
   const defs = await listFormDefinitions();
-  const activeDefs = defs.filter((form) => form.isActive);
-  const eventSpecific = activeDefs.find((form) => form.eventId === eventId);
+  const eventSpecific = defs.find((form) => form.eventId === eventId);
+  const shared = defs.find(
+    (form) => form.isActive && form.key === "teacher-registration" && !form.eventId,
+  );
   const picked =
     eventSpecific ??
-    activeDefs.find((form) => form.key === "teacher-registration") ??
+    shared ??
+    defs.find((form) => form.isActive && form.key === "teacher-registration") ??
     null;
   return picked ? normalizeParticipantRegistrationForm(picked) : null;
+}
+
+const DEFAULT_TEACHER_REGISTRATION_FIELDS: FormFieldDefinition[] = [
+  {
+    id: "schoolName",
+    label: "School Name",
+    type: "text",
+    required: true,
+    placeholder: "Boise High School",
+    layout: { mdColSpan: 1 },
+  },
+  {
+    id: "teacherName",
+    label: "Teacher Name",
+    type: "text",
+    required: true,
+    placeholder: "Jordan Smith",
+    layout: { mdColSpan: 1 },
+  },
+  {
+    id: "teacherEmail",
+    label: "Teacher Email",
+    type: "email",
+    required: true,
+    placeholder: "teacher@school.org",
+    layout: { mdColSpan: 1 },
+  },
+  {
+    id: "notes",
+    label: "Notes",
+    type: "textarea",
+    required: false,
+    placeholder: "Share any constraints or support needed.",
+    layout: { mdColSpan: 3 },
+  },
+  {
+    id: "teacherConsent",
+    label: "I confirm this submission is teacher-approved.",
+    type: "checkbox",
+    required: true,
+    layout: { mdColSpan: 3 },
+  },
+];
+
+/**
+ * Ensure this event has its own registration form row (clone of global default on first use).
+ */
+export async function ensureEventRegistrationForm(
+  eventId: string,
+  overrides?: {
+    title?: string;
+    description?: string | null;
+    fields?: FormFieldDefinition[];
+  },
+): Promise<FormDefinitionRecord> {
+  const existing = await getRegistrationFormForEvent(eventId);
+  if (existing?.eventId === eventId) {
+    return existing;
+  }
+
+  const template =
+    existing ??
+    ({
+      id: "",
+      key: "teacher-registration",
+      title: "School & teacher details",
+      description: DEFAULT_REGISTRATION_FORM_DESCRIPTION,
+      eventId: null,
+      audience: "teachers" as const,
+      fields: DEFAULT_TEACHER_REGISTRATION_FIELDS,
+      version: 1,
+      isActive: true,
+    } satisfies FormDefinitionRecord);
+
+  /** Prefer participant-facing heading when cloning the old admin template title. */
+  const title =
+    !template.title.trim() ||
+    template.title === "Teacher Registration Form"
+      ? "School & teacher details"
+      : template.title;
+  const description = registrationFormDescription(template.description);
+
+  try {
+    return await saveFormDefinition({
+      key: "teacher-registration",
+      title: overrides?.title?.trim() || title,
+      description:
+        overrides?.description !== undefined
+          ? overrides.description?.trim() || null
+          : description,
+      eventId,
+      audience: template.audience,
+      fields: structuredClone(overrides?.fields ?? template.fields),
+      isActive: true,
+    });
+  } catch (err) {
+    const again = await getRegistrationFormForEvent(eventId);
+    if (again?.eventId === eventId) return again;
+    throw err;
+  }
+}
+
+export async function updateFormDefinitionFields(
+  formId: string,
+  fields: FormFieldDefinition[],
+): Promise<FormDefinitionRecord> {
+  return updateFormDefinition(formId, { fields });
+}
+
+export async function updateFormDefinition(
+  formId: string,
+  patch: {
+    fields?: FormFieldDefinition[];
+    title?: string;
+    description?: string | null;
+    isActive?: boolean;
+  },
+): Promise<FormDefinitionRecord> {
+  if (!hasSupabaseCredentials || !supabase) {
+    throw new Error("Supabase isn’t configured, so the form cannot be saved.");
+  }
+  const updates: Record<string, unknown> = {};
+  if (patch.fields !== undefined) updates.fields = patch.fields;
+  if (patch.title !== undefined) updates.title = patch.title.trim();
+  if (patch.description !== undefined) {
+    const d = patch.description?.trim() ?? "";
+    updates.description = d.length > 0 ? d : null;
+  }
+  if (patch.isActive !== undefined) updates.is_active = patch.isActive;
+  if (Object.keys(updates).length === 0) {
+    throw new Error("Nothing to update");
+  }
+  const client = supabase;
+  const { data, error } = await client
+    .from("form_definitions")
+    .update(updates)
+    .eq("id", formId)
+    .select(
+      "id,form_key,title,description,event_id,audience,fields,version,is_active",
+    )
+    .maybeSingle<FormDefinitionRow>();
+  if (error) throw error;
+  if (!data) {
+    throw new Error(
+      "The form was not saved. This account can open the page, but the database did not accept the update.",
+    );
+  }
+  return normalizeParticipantRegistrationForm(toFormDefinitionRecord(data));
 }
 
 export async function saveFormDefinition(
   input: Omit<FormDefinitionRecord, "id" | "version">,
 ) {
-  return withSupabase(
-    async () => {
-      if (!supabase) throw new Error("No supabase");
-      const { data, error } = await supabase
-        .from("form_definitions")
-        .insert({
-          event_id: input.eventId,
-          scope: "registration",
-          form_key: input.key,
-          title: input.title,
-          description: input.description ?? null,
-          audience: input.audience,
-          fields: input.fields,
-          version: 1,
-          is_active: input.isActive,
-        })
-        .select(
-          "id,form_key,title,description,event_id,audience,fields,version,is_active",
-        )
-        .single<FormDefinitionRow>();
-      if (error) throw error;
-      return toFormDefinitionRecord(data);
-    },
-    async () => ({
-      ...input,
-      id: crypto.randomUUID(),
+  if (!hasSupabaseCredentials || !supabase) {
+    throw new Error("Supabase isn’t configured, so the form cannot be saved.");
+  }
+  const client = supabase;
+  const { data, error } = await client
+    .from("form_definitions")
+    .insert({
+      event_id: input.eventId,
+      scope: "registration",
+      form_key: input.key,
+      title: input.title,
+      description: input.description ?? null,
+      audience: input.audience,
+      fields: input.fields,
       version: 1,
-    }),
-  );
+      is_active: input.isActive,
+    })
+    .select(
+      "id,form_key,title,description,event_id,audience,fields,version,is_active",
+    )
+    .single<FormDefinitionRow>();
+  if (error) throw error;
+  return toFormDefinitionRecord(data);
 }
 
+/**
+ * Submit / update teacher registration.
+ * Avoids PostgREST upsert onConflict: partial unique index (deleted_at IS NULL) returns 400.
+ * Does not use {@link withSupabase} so real errors reach the register UI.
+ */
 export async function submitForm(
   input: Omit<FormSubmissionRecord, "id" | "createdAt" | "status">,
-) {
-  return withSupabase<FormSubmissionRecord>(
-    async () => {
-      if (!supabase) throw new Error("No supabase");
+): Promise<FormSubmissionRecord> {
+  if (!hasSupabaseCredentials || !supabase) {
+    throw new Error(
+      "Supabase isn’t configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local and restart the dev server.",
+    );
+  }
+  if (!input.eventId) throw new Error("An event is required to submit.");
 
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData.user?.id;
-      if (!userId) throw new Error("User must be signed in");
+  const client = supabase;
+  return withNetworkRetries(async () => {
+    const { data: authData } = await client.auth.getUser();
+    const userId = authData.user?.id;
+    if (!userId) throw new Error("User must be signed in");
 
-      const customFields = input.payload;
-      const schoolName = String(customFields.schoolName ?? "Unknown School");
-      const className = null;
-      /** Teacher form notes live in custom_fields only; teacher_notes column is admin-internal. */
-      const { data: existingReg } = await supabase
+    const customFields = input.payload;
+    const schoolName = String(customFields.schoolName ?? "Unknown School");
+    const className = null;
+    const submittedAt = new Date().toISOString();
+
+    const { data: existingReg, error: existingErr } = await client
+      .from("registrations")
+      .select("id, teacher_notes")
+      .eq("event_id", input.eventId)
+      .eq("teacher_id", userId)
+      .is("deleted_at", null)
+      .maybeSingle<{ id: string; teacher_notes: string | null }>();
+    if (existingErr) throw existingErr;
+
+    const rowPayload = {
+      event_id: input.eventId,
+      teacher_id: userId,
+      status: "submitted" as const,
+      school_name: schoolName,
+      class_name: className,
+      teacher_notes: existingReg?.teacher_notes ?? null,
+      custom_fields: customFields,
+      submitted_at: submittedAt,
+    };
+
+    const selectCols =
+      "id,event_id,teacher_id,status,school_name,class_name,teacher_notes,custom_fields,submitted_at,created_at";
+
+    let data: RegistrationRow;
+    if (existingReg) {
+      const { data: updated, error } = await client
         .from("registrations")
-        .select("teacher_notes")
-        .eq("event_id", input.eventId)
-        .eq("teacher_id", userId)
-        .is("deleted_at", null)
-        .maybeSingle<{ teacher_notes: string | null }>();
-
-      const { data, error } = await supabase
-        .from("registrations")
-        .upsert(
-          {
-            event_id: input.eventId,
-            teacher_id: userId,
-            status: "submitted",
-            school_name: schoolName,
-            class_name: className,
-            teacher_notes: existingReg?.teacher_notes ?? null,
-            custom_fields: customFields,
-            submitted_at: new Date().toISOString(),
-          },
-          { onConflict: "event_id,teacher_id" },
-        )
-        .select(
-          "id,event_id,teacher_id,status,school_name,class_name,teacher_notes,custom_fields,submitted_at,created_at",
-        )
+        .update(rowPayload)
+        .eq("id", existingReg.id)
+        .select(selectCols)
         .single<RegistrationRow>();
       if (error) throw error;
+      data = updated;
+    } else {
+      const { data: inserted, error } = await client
+        .from("registrations")
+        .insert(rowPayload)
+        .select(selectCols)
+        .single<RegistrationRow>();
+      if (error) throw error;
+      data = inserted;
+    }
 
-      return {
-        id: data.id,
-        formDefinitionId: input.formDefinitionId,
-        eventId: data.event_id as string | null,
-        submittedBy: input.submittedBy,
-        payload: data.custom_fields,
-        status: toSubmissionStatus(data.status),
-        createdAt: data.created_at,
-      };
-    },
-    async () => ({
-      ...input,
-      id: crypto.randomUUID(),
-      status: "pending" as SubmissionStatus,
-      createdAt: new Date().toISOString(),
-    }),
-  );
+    return {
+      id: data.id,
+      formDefinitionId: input.formDefinitionId,
+      eventId: data.event_id as string | null,
+      submittedBy: input.submittedBy,
+      payload: data.custom_fields,
+      status: toSubmissionStatus(data.status),
+      createdAt: data.created_at,
+    };
+  });
 }
 
 export async function listFormSubmissions() {
@@ -2293,10 +2583,22 @@ export async function addScore(input: Omit<ScoreRecord, "id" | "createdAt">) {
       const userId = authData.user?.id;
       if (!userId) throw new Error("User must be signed in");
 
-      const { data: registration, error: regError } = await supabase
+      const { data: existingReg, error: existingRegErr } = await supabase
         .from("registrations")
-        .upsert(
-          {
+        .select("id")
+        .eq("event_id", input.eventId)
+        .eq("teacher_id", userId)
+        .is("deleted_at", null)
+        .maybeSingle<{ id: string }>();
+      if (existingRegErr) throw existingRegErr;
+
+      let registration: { id: string };
+      if (existingReg) {
+        registration = existingReg;
+      } else {
+        const { data: insertedReg, error: regError } = await supabase
+          .from("registrations")
+          .insert({
             event_id: input.eventId,
             teacher_id: userId,
             status: "approved",
@@ -2304,12 +2606,12 @@ export async function addScore(input: Omit<ScoreRecord, "id" | "createdAt">) {
             class_name: null,
             teacher_notes: "Auto-created for score tracking.",
             custom_fields: {},
-          },
-          { onConflict: "event_id,teacher_id" },
-        )
-        .select("id")
-        .single<{ id: string }>();
-      if (regError) throw regError;
+          })
+          .select("id")
+          .single<{ id: string }>();
+        if (regError) throw regError;
+        registration = insertedReg;
+      }
 
       const { data: existingTeam, error: existingTeamError } = await supabase
         .from("teams")

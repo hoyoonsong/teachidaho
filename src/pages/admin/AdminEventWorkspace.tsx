@@ -6,6 +6,7 @@ import {
 import { getEventById, type EventRecord } from "../../lib/appDataStore";
 import { AdminEventAnnouncementsPage } from "./AdminEventAnnouncementsPage";
 import { AdminEventOverviewPage } from "./AdminEventOverviewPage";
+import { AdminEventRegistrationFormPage } from "./AdminEventRegistrationFormPage";
 import { AdminEventRegistrationsPage } from "./AdminEventRegistrationsPage";
 import { AdminEventScoreboardPage } from "./AdminEventScoreboardPage";
 import { AdminEventVolunteersPage } from "./AdminEventVolunteersPage";
@@ -57,8 +58,10 @@ export function AdminEventWorkspace({
     );
   } else if (section === "overview") {
     page = <AdminEventOverviewPage eventId={eventId} onSaved={refreshEvent} />;
-  } else if (section === "registrations") {
+  } else if (section === "submissions") {
     page = <AdminEventRegistrationsPage eventId={eventId} />;
+  } else if (section === "registration-form") {
+    page = <AdminEventRegistrationFormPage eventId={eventId} />;
   } else if (section === "announcements") {
     page = <AdminEventAnnouncementsPage eventId={eventId} />;
   } else if (section === "volunteers") {

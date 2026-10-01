@@ -124,6 +124,11 @@ export function AdminEventRegistrationsPage({
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  const eventCountries =
+    allEvents.find((e) => e.id === eventId)?.registrationCountries ?? [];
+  const teamsEnabledForEvent =
+    allEvents.find((e) => e.id === eventId)?.registrationTeamsEnabled !== false;
+
   async function handleMoveRegistration(registrationId: string) {
     if (!moveTargetEventId) {
       setActionError("Choose a destination event.");
@@ -213,7 +218,7 @@ export function AdminEventRegistrationsPage({
     <div className="space-y-5">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-          Registrations
+          Submissions
         </p>
         <h2 className="mt-2 text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
           Teachers &amp; schools
@@ -372,14 +377,17 @@ export function AdminEventRegistrationsPage({
                   </div>
                 </details>
 
-                <div className="mt-4">
-                  <RegistrationTeamsEditor
-                    registrationId={submission.id}
-                    title="Teams for this school"
-                    variant="embedded"
-                    onTeamsChanged={() => void load()}
-                  />
-                </div>
+                {teamsEnabledForEvent ? (
+                  <div className="mt-4">
+                    <RegistrationTeamsEditor
+                      registrationId={submission.id}
+                      title="Teams for this school"
+                      variant="embedded"
+                      onTeamsChanged={() => void load()}
+                      countries={eventCountries}
+                    />
+                  </div>
+                ) : null}
               </div>
             </article>
           );
