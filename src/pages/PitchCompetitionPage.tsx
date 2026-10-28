@@ -16,7 +16,7 @@ export function PitchCompetitionPage() {
             The High School Idaho Entrepreneur Challenge--in partnership with
             Boise State University's{" "}
             <a
-              href="https://www.boisestate.edu/venturecollege/"
+              href="https://www.boisestate.edu/venturecollege/high-school-idaho-entrepreneur-challenge/"
               target="_blank"
               rel="noreferrer"
               className="text-orange-600 hover:text-orange-700"
@@ -43,6 +43,23 @@ export function PitchCompetitionPage() {
             >
               Register Now
             </a>
+          </div>
+        </div>
+      </section>
+      <section className="border-b border-slate-200 bg-white py-12">
+        <div className="mx-auto max-w-7xl px-6 lg:px-8">
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+            Competition Overview
+          </h2>
+          <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+            <div className="relative aspect-[960/569] w-full">
+              <iframe
+                title="Idaho High School Entrepreneurs Challenge overview"
+                src="https://docs.google.com/presentation/d/1I5Rq4BnQj22kTreKU4vMwV7wiDLH7UiPl_dCE5-ozHE/embed?start=false&loop=false&delayms=3000"
+                className="absolute inset-0 h-full w-full"
+                allowFullScreen
+              />
+            </div>
           </div>
         </div>
       </section>
