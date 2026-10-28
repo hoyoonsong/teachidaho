@@ -2159,9 +2159,9 @@ export async function ensureEventRegistrationForm(
       key: "teacher-registration",
       title: overrides?.title?.trim() || title,
       description:
-        overrides?.description !== undefined
+        (overrides?.description !== undefined
           ? overrides.description?.trim() || null
-          : description,
+          : description) ?? undefined,
       eventId,
       audience: template.audience,
       fields: structuredClone(overrides?.fields ?? template.fields),
