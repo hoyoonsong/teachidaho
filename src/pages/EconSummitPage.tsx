@@ -2,6 +2,8 @@ import { useState } from "react";
 import { GallerySection } from "../components/GallerySection";
 import { econImages } from "../data/galleryData";
 
+const tradingAppUrl = "https://mockmarket-68ceb.web.app/";
+
 type SummitTab = "overview" | "resume" | "preparing";
 
 const tabs: { id: SummitTab; label: string }[] = [
@@ -309,6 +311,27 @@ export function EconSummitPage() {
         subtitle="Click any image to view larger."
         images={econImages}
       />
+      <section className="border-b border-slate-200 bg-white">
+        <div className="mx-auto max-w-7xl px-6 py-10 lg:px-8">
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 md:text-3xl">
+            Trading App
+          </h2>
+          <p className="mt-2 text-sm text-slate-700">
+            Students can learn how to use the trading app to trade with other countries to reach the resource goals they've set for their country.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <a href={tradingAppUrl} target="_blank" rel="noreferrer" className="inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700">
+              Go to Trading App
+            </a>
+            <a
+              href="/info/trading-app"
+              className="inline-flex rounded-lg bg-white border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-200"
+            >
+              See Tutorial
+            </a>
+          </div>
+        </div>
+      </section>
     </main>
   );
 }
