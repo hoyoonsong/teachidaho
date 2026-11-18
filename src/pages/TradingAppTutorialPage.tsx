@@ -11,7 +11,7 @@ import adminTradesScreenshot from "../assets/tradingapp/admin-trades.png";
 import adminUsScreenshot from "../assets/tradingapp/admin-us.png";
 import adminSettingsScreenshot from "../assets/tradingapp/admin-setup.png";
 
-const tradingAppUrl = "https://mockmarket-68ceb.web.app/";
+import { tradingAppUrl } from "./EconSummitPage";
 
 type Audience = "student" | "teacher";
 

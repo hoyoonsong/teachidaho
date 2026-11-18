@@ -2,7 +2,8 @@ import { useState } from "react";
 import { GallerySection } from "../components/GallerySection";
 import { econImages } from "../data/galleryData";
 
-const tradingAppUrl = "https://mockmarket-68ceb.web.app/";
+export const tradingAppUrl = "https://tradingapp.teachidaho.org";
+// const tradingAppUrl = "https://mockmarket-68ceb.web.app/";
 
 type SummitTab = "overview" | "resume" | "preparing";
 
